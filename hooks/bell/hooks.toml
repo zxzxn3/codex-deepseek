@@ -1,0 +1,21 @@
+# Installed commands resolve {player} and {assets} for the selected project.
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "test ! -f {assets}/prompt.oga || {player} {assets}/prompt.oga"
+timeout = 5
+async = true
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "test ! -f {assets}/complete.oga || {player} {assets}/complete.oga"
+timeout = 5
+async = true
+
+[[hooks.PermissionRequest]]
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = "test ! -f {assets}/complete.oga || {player} {assets}/complete.oga"
+timeout = 5
+async = true
