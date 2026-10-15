@@ -6,9 +6,11 @@ separately; requests go directly to the configured DeepSeek API endpoint.
 
 Launch Codex with DeepSeek in an independent `CODEX_HOME`. Requirements:
 Linux, Codex CLI 0.158.0+, Python 3.11+, `secret-tool`, an unlocked desktop
-Secret Service keyring, and a DeepSeek API key. The installer and offline
-integration tests have been verified with Codex CLI 0.162.1; use the probes
-after changing the client or provider.
+Secret Service keyring, and a DeepSeek API key.
+
+Used daily on Linux with DeepSeek, desktop keyring authentication, and the bell
+hook. Installation, configuration, and launcher behavior have been tested with
+Codex CLI 0.162.1.
 
 ## Files
 
