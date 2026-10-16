@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Read-only installation planning, explicit confirmation, execution and verification."""
 from __future__ import annotations
 
@@ -13,15 +12,17 @@ import subprocess
 import sys
 import tomllib
 import textwrap
+import tempfile
 
 # Installation planning must not create bytecode before confirmation.
 sys.dont_write_bytecode = True
 
-from launcher import MODELS, configuration, toml_config
+from ._config import MODELS, configuration, toml_config
 
 SKILL = Path('skills/codex-session-messaging')
 BELL = Path('hooks/bell/hooks.toml')
 BELL_ASSETS = Path('assets/bell')
+LOGO = Path('assets/logo/whale-girl.txt')
 
 
 def styled(text: str, code: str) -> str:
@@ -36,6 +37,16 @@ def phase(text: str) -> None:
 
 def detail(text: str) -> None:
     print('  ' + styled('->', '2') + ' ' + text)
+
+
+def logo_banner(source: Path) -> None:
+    if not sys.stdout.isatty() or os.environ.get('TERM') == 'dumb':
+        return
+    artwork = (source / LOGO).read_text(encoding='ascii').rstrip('\n')
+    columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+    if max(map(len, artwork.splitlines()), default=0) <= columns:
+        print(artwork)
+        print()
 
 
 def confirm(prompt: str) -> bool:
@@ -83,6 +94,14 @@ def operation_plan(operations: list[str], *, manual_steps=0) -> None:
         operation_row(operations, number, 'pending', manual_steps=manual_steps)
 
 
+def simulate_operations(operations: list[str], *, manual_steps=0) -> None:
+    phase('Simulating changes...')
+    for number in range(1, len(operations) + 1):
+        operation_row(operations, number, 'simulated', manual_steps=manual_steps)
+    detail('File changes and installation verification skipped.')
+    print('Dry run complete. No changes made.')
+
+
 def check_directory(path: Path) -> None:
     for parent in (path, *path.parents):
         if (parent.exists() or parent.is_symlink()) and not parent.is_dir():
@@ -126,13 +145,13 @@ def dependencies() -> None:
 
 
 def project_files(source: Path) -> dict[Path, tuple[bytes, int]]:
-    paths = [Path(name) for name in ('launcher.py', 'install.py', 'models.json',
+    paths = [Path(name) for name in ('launcher.py', 'libs/__init__.py', 'libs/_install.py', 'libs/_config.py', 'models.json',
                                      'README.md', 'MODEL-CATALOG.md')]
-    for directory in (Path('probes'), Path('tests'), SKILL, BELL.parent, BELL_ASSETS):
+    for directory in (Path('probes'), Path('tests'), SKILL, BELL.parent, BELL_ASSETS, LOGO.parent):
         paths.extend(p.relative_to(source) for p in (source / directory).rglob('*')
                      if p.is_file() and (p.suffix in ('.py', '.toml', '.oga', '.txt')
                                         or p.name in ('README.md', 'SKILL.md')))
-    for required in (SKILL / 'SKILL.md', BELL):
+    for required in (SKILL / 'SKILL.md', BELL, LOGO):
         if required not in paths:
             raise ValueError(f'Bundled component is missing: {required}')
     files = {}
@@ -280,22 +299,37 @@ def next_steps(root: Path, skill: bool, bell: bool, *, automatic_steps: int) -> 
                 width=min(76, shutil.get_terminal_size(fallback=(80, 24)).columns)))
 
 
-def install(source: Path, root: Path, *, defaults=False, skill=False, bell=False) -> int:
+def planning_check(check, *args, dry_run=False) -> bool:
+    try:
+        check(*args)
+    except ValueError as error:
+        if not dry_run:
+            raise
+        print(styled(f'Would prevent installation: {error}', '33'))
+        return False
+    return True
+
+
+def install(source: Path, root: Path, *, defaults=False, skill=False, bell=False, dry_run=False) -> int:
     root = root.expanduser().resolve()
     source = source.resolve()
     files = project_files(source)
-    check_payload(source, root, files)
+    destination_ok = planning_check(check_payload, source, root, files, dry_run=dry_run)
     sys.stdout.flush()
     dependencies()
     link = Path.home() / '.local/bin/codex-deepseek'
-    check_link(root / 'launcher.py', link)
+    link_ok = planning_check(check_link, root / 'launcher.py', link, dry_run=dry_run)
+    logo_banner(source)
+    if dry_run:
+        phase('Dry run: no changes will be made')
     if not introduction():
         return 0
     print()
     phase('Checking requirements...')
     detail('Python, Codex and secret-tool available.')
     phase('Checking destination...')
-    detail('No conflicting project files or command links.')
+    detail('No conflicting project files or command links.' if destination_ok and link_ok
+           else 'Resolve the reported conflicts before installing.')
     base, label = config_source(defaults)
     text = configuration(base, root=root)
     if bell:
@@ -316,6 +350,10 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, bell=False
     print(styled('Command link:', '2') + '       ' + styled(str(link), '1'))
     print()
     if not confirm('Proceed with installation?'):
+        return 0
+    if dry_run:
+        simulate_operations(operations, manual_steps=2)
+        next_steps(root, skill, bell, automatic_steps=len(operations))
         return 0
     # Repeat destination checks after the user has had time to read the plan.
     check_payload(source, root, files)
@@ -390,7 +428,110 @@ def installed_home(root: Path) -> tuple[Path, str]:
     return root, text
 
 
-def install_extra(root: Path, *, skill=False) -> int:
+def update(source: Path, root: Path, *, dry_run=False) -> int:
+    """Apply a separately downloaded release, preserving all private home data."""
+    source = source.resolve()
+    root, original_config = installed_home(root)
+    if source == root:
+        raise ValueError('Run --update from a separate checkout of the new version; '
+                         'use --dir to select the existing installation')
+    files = project_files(source)
+    dependencies()
+    # Sounds belong to the user after installation, including intentional deletions.
+    files = {path: value for path, value in files.items()
+             if not (path.is_relative_to(BELL_ASSETS) and path.suffix == '.oga')}
+
+    def snapshot():
+        result = {}
+        for relative in files:
+            path = root / relative
+            # Refuse redirected writes, including symlinked parent directories.
+            for part in (path, *path.parents):
+                if part == root:
+                    break
+                if part.is_symlink():
+                    raise ValueError(f'Refusing a symlinked update path: {part}')
+            check_directory(path.parent)
+            if path.exists() and not path.is_file():
+                raise ValueError(f'Not a regular project file: {path}')
+            result[relative] = ((path.read_bytes(), path.stat().st_mode & 0o777)
+                                if path.exists() else None)
+        return result
+
+    before = snapshot()
+    changes = {path: value for path, value in files.items()
+               if before[path] is None or before[path][0] != value[0]
+               or (path == Path('launcher.py') and not before[path][1] & 0o100)}
+    if not changes:
+        print('Project files are already up to date; no files changed.')
+        return 0
+    if dry_run:
+        phase('Dry run: no changes will be made')
+    if not introduction():
+        return 0
+    operations = ['Back up replaced project files', 'Update project files', 'Verify updated files']
+    phase('Preparing update...')
+    operation_plan(operations)
+    detail(f'New version: {source}')
+    detail(f'Installation: {root}')
+    detail('Keep private Codex home, configuration, command link and sounds unchanged.')
+    detail('Backups: ' + str(root / '.update-backups'))
+    for relative in changes:
+        detail(f'{"Add" if before[relative] is None else "Replace"}: {relative}')
+    if not confirm('Proceed with update?'):
+        return 0
+    if dry_run:
+        simulate_operations(operations)
+        return 0
+    if snapshot() != before or (root / '.codex/config.toml').read_text() != original_config:
+        raise ValueError('Installation changed after planning; no changes applied; run again')
+    backups = root / '.update-backups'
+    if backups.is_symlink():
+        raise ValueError(f'Refusing a symlinked backup directory: {backups}')
+    phase('Applying changes...')
+    backup = None
+    step = operations[0]
+    try:
+        backups.mkdir(mode=0o700, exist_ok=True)
+        backup = Path(tempfile.mkdtemp(prefix='update-', dir=backups))
+        for relative in changes:
+            if before[relative] is not None:
+                target = backup / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(before[relative][0])
+                target.chmod(before[relative][1])
+        operation_row(operations, 1, 'done')
+        step = operations[1]
+        for relative, (content, mode) in changes.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+            temporary = Path(name)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(content)
+                temporary.chmod(mode | (0o100 if relative == Path('launcher.py') else 0))
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        operation_row(operations, 2, 'done')
+        step = operations[2]
+        for relative, (content, _) in changes.items():
+            if (root / relative).read_bytes() != content:
+                raise ValueError(f'File verification failed: {relative}')
+        if (root / '.codex/config.toml').read_text() != original_config:
+            raise ValueError('Configuration changed during update')
+        operation_row(operations, 3, 'done')
+    except (OSError, ValueError, KeyboardInterrupt) as error:
+        print(f'Update stopped at {step}; earlier steps may have completed. '
+              f'Backup: {backup or backups}', file=sys.stderr)
+        raise
+    detail(f'Backup: {backup}')
+    print(styled('==> Update complete. Restart Codex sessions to use the updated launcher and skill.', '1;32'))
+    return 0
+
+
+def install_extra(root: Path, *, skill=False, dry_run=False) -> int:
     root, original = installed_home(root)
     home = root / '.codex'
     if skill:
@@ -419,6 +560,8 @@ def install_extra(root: Path, *, skill=False) -> int:
         operations = ['Back up configuration', 'Append bell hooks']
         lines = [f'Back up {config} to {backup}',
                  f'Append missing bell hooks to {config}; keep other settings']
+    if dry_run:
+        phase('Dry run: no changes will be made')
     if not introduction():
         return 0
     print()
@@ -428,6 +571,9 @@ def install_extra(root: Path, *, skill=False) -> int:
         detail(line)
     print()
     if not confirm('Apply these changes?'):
+        return 0
+    if dry_run:
+        simulate_operations(operations)
         return 0
     if (home / 'config.toml').read_text() != original:
         raise ValueError('Configuration changed after planning; no changes applied; run again')
@@ -465,33 +611,31 @@ def install_extra(root: Path, *, skill=False) -> int:
 
 
 def run(args: list[str], *, source: Path) -> int:
-    parser = argparse.ArgumentParser(prog='install.py' if args[0] == 'install' else 'codex-deepseek')
+    parser = argparse.ArgumentParser(prog='codex-deepseek install' if args[0] == 'install' else 'codex-deepseek')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='rehearse the interactive installation without file changes')
     if args[0] == 'install':
         for option in ('--install-messaging-skill', '--install-bell-hook'):
             if any(arg.partition('=')[0] == option for arg in args[1:]):
                 parser.error(f'For an existing installation, use codex-deepseek {option} '
                              '(add --dir PATH for a custom destination)')
         parser.add_argument('--dir', type=Path, default=Path.home() / '.local/share/codex-deepseek')
+        parser.add_argument('--update', action='store_true', help='update an existing installation from this checkout')
         parser.add_argument('--defaults', action='store_true', help='skip configuration-source selection')
         parser.add_argument('--with-messaging-skill', action='store_true')
         parser.add_argument('--with-bell-hook', action='store_true')
         options = parser.parse_args(args[1:])
+        if options.update:
+            if options.defaults or options.with_messaging_skill or options.with_bell_hook:
+                parser.error('--update cannot be combined with fresh-install options')
+            return update(source, options.dir, dry_run=options.dry_run)
         return install(source, options.dir, defaults=options.defaults,
-                       skill=options.with_messaging_skill, bell=options.with_bell_hook)
+                       skill=options.with_messaging_skill, bell=options.with_bell_hook,
+                       dry_run=options.dry_run)
     parser.add_argument('--dir', type=Path, default=source)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--install-messaging-skill', action='store_true')
     group.add_argument('--install-bell-hook', action='store_true')
     options = parser.parse_args(args)
-    return install_extra(options.dir, skill=options.install_messaging_skill)
+    return install_extra(options.dir, skill=options.install_messaging_skill, dry_run=options.dry_run)
 
-
-if __name__ == '__main__':
-    try:
-        raise SystemExit(run(['install', *sys.argv[1:]], source=Path(__file__).resolve().parent))
-    except KeyboardInterrupt:
-        print('\ncodex-deepseek: cancelled', file=sys.stderr)
-        raise SystemExit(130)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f'codex-deepseek: {error}', file=sys.stderr)
-        raise SystemExit(1)

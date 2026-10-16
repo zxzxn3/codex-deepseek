@@ -44,6 +44,37 @@ class CredentialTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Unlock your keyring'):
                     launcher.check_key()
 
+class InstallerEntryTest(unittest.TestCase):
+    def test_install_and_components_route_without_home_or_keyring(self):
+        from libs import _install
+        for args in (['install', '--defaults', '--dry-run'],
+                     ['install', '--update', '--dir', '/tmp/example'],
+                     ['--install-messaging-skill'], ['--install-bell-hook', '--dry-run']):
+            with self.subTest(args=args), patch.object(_install, 'run', return_value=0) as run, \
+                 patch.object(launcher, 'check_key') as key, \
+                 patch.object(launcher.os, 'execvpe') as execute:
+                self.assertEqual(launcher.main(args), 0)
+                run.assert_called_once_with(args, source=launcher.HERE)
+                key.assert_not_called()
+                execute.assert_not_called()
+
+    def test_install_help_works_from_clean_checkout_without_writes(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copyfile(launcher.HERE / 'launcher.py', root / 'launcher.py')
+            shutil.copytree(launcher.HERE / 'libs', root / 'libs',
+                            ignore=shutil.ignore_patterns('__pycache__'))
+            before = sorted(str(p.relative_to(root)) for p in root.rglob('*'))
+            result = subprocess.run([sys.executable, str(root / 'launcher.py'), 'install', '--help'],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('codex-deepseek install', result.stdout)
+            self.assertIn('--dry-run', result.stdout)
+            self.assertIn('--update', result.stdout)
+            self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*')), before)
+
+
 class KeyPreflightTest(unittest.TestCase):
     def test_local_commands_do_not_touch_keyring(self):
         for args in [['queue', '--message', 'hello'], ['agents'], ['help', 'exec'],
@@ -61,8 +92,7 @@ class KeyPreflightTest(unittest.TestCase):
                     self.assertEqual(execute.call_args.args[1], ['codex', *args])
 
     def test_home_model_is_forwarded_before_user_overrides(self):
-        for args in ([], ['-m', 'deepseek-v4-pro'],
-                     ['-c', 'model="custom-model"', 'exec', 'hello']):
+        for args in ([], ['exec', 'hello'], ['resume', '--all']):
             with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
                 data = Path(tmp)
                 (data / 'config.toml').write_text('model = "deepseek-flash"\n')
@@ -71,8 +101,28 @@ class KeyPreflightTest(unittest.TestCase):
                      patch.object(launcher.os, 'execvpe') as execute:
                     launcher.main(args)
                 self.assertEqual(execute.call_args.args[1],
-                                 ['codex', '-c', 'model="deepseek-flash"', *args])
+                                 ['codex', '--model', 'deepseek-flash', *args])
                 self.assertEqual(execute.call_args.args[2]['CODEX_HOME'], str(data))
+
+    def test_explicit_models_are_not_overridden(self):
+        for args in (['-m', 'deepseek-v4-pro'], ['--model=custom'], ['-mcustom'],
+                     ['exec', '--model', 'custom', 'hello'],
+                     ['-c', 'model="custom"', 'exec', 'hello'],
+                     ['--config=model="custom"'], ['-cmodel="custom"']):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
+                data = Path(tmp)
+                (data / 'config.toml').write_text('model = "deepseek-flash"\n')
+                with patch.object(launcher, 'DATA', data), \
+                     patch.object(launcher, 'check_key'), \
+                     patch.object(launcher.os, 'execvpe') as execute:
+                    launcher.main(args)
+                self.assertEqual(execute.call_args.args[1], ['codex', *args])
+
+    def test_model_detection_skips_option_values_and_literal_arguments(self):
+        for args in (['-C', '--model'], ['--', '-m', 'literal'],
+                     ['-c', 'model_reasoning_effort="high"']):
+            with self.subTest(args=args):
+                self.assertFalse(launcher.explicit_model(args))
 
     def test_prompts_and_option_values_do_not_become_commands(self):
         for args in [[], ['exec', 'queue'], ['resume'], ['app-server'], ['doctor'],

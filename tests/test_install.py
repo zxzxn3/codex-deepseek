@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import install as installer
+from libs import _install as installer
 import launcher
 
 
@@ -34,6 +34,60 @@ class InstallerTest(unittest.TestCase):
 
     def contents(self):
         return sorted(str(p.relative_to(self.home)) for p in self.home.rglob('*'))
+
+    def test_dry_run_keeps_confirmations_without_writes(self):
+        self.introduction.side_effect = self.original_introduction
+        with patch('builtins.input', return_value='y') as prompt:
+            self.assertEqual(self.install(dry_run=True), 0)
+            self.assertEqual(prompt.call_count, 2)
+        self.assertEqual(self.contents(), [])
+        self.assertIn('Dry run complete. No changes made.', self.output.getvalue())
+        self.assertIn('Install project files', self.output.getvalue())
+        self.assertNotIn('Applying changes', self.output.getvalue())
+        self.assertNotIn('Automatic steps complete', self.output.getvalue())
+        self.assertIn('simulated', self.output.getvalue())
+        self.assertIn('Next steps', self.output.getvalue())
+
+    def test_dry_run_can_cancel_at_either_confirmation(self):
+        self.introduction.side_effect = self.original_introduction
+        for answers in (['n'], [EOFError()], ['y', 'n'], ['y', EOFError()]):
+            with self.subTest(answers=answers), patch('builtins.input', side_effect=answers):
+                self.assertEqual(self.install(dry_run=True), 0)
+                self.assertEqual(self.contents(), [])
+        self.assertNotIn('simulated', self.output.getvalue())
+
+    def test_dry_run_reports_conflicts_without_overwriting(self):
+        home = self.root / '.codex'
+        home.mkdir(parents=True)
+        marker = home / 'config.toml'
+        marker.write_text('existing home')
+        link = self.home / '.local/bin/codex-deepseek'
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.home / 'unrelated')
+        before = self.contents()
+        with patch('builtins.input', return_value='y') as prompt:
+            self.assertEqual(self.install(dry_run=True), 0)
+            prompt.assert_called_once()
+        self.assertEqual(self.contents(), before)
+        self.assertEqual(marker.read_text(), 'existing home')
+        self.assertEqual(link.readlink(), self.home / 'unrelated')
+        self.assertEqual(self.output.getvalue().count('Would prevent installation:'), 2)
+        self.assertNotIn('No conflicting project files', self.output.getvalue())
+        with self.assertRaisesRegex(ValueError, 'not empty'):
+            self.install()
+
+    def test_component_dry_runs_preserve_config_and_links(self):
+        with patch('builtins.input', return_value='y'):
+            self.install()
+        self.introduction.side_effect = self.original_introduction
+        config = self.root / '.codex/config.toml'
+        before, content = self.contents(), config.read_bytes()
+        for skill in (True, False):
+            with self.subTest(skill=skill), self.bell_dependencies(), patch('builtins.input', return_value='y') as prompt:
+                self.assertEqual(installer.install_extra(self.root, skill=skill, dry_run=True), 0)
+                self.assertEqual(prompt.call_count, 2)
+                self.assertEqual(self.contents(), before)
+                self.assertEqual(config.read_bytes(), content)
 
     def test_decline_and_eof_do_not_write(self):
         for answer in ['', 'n', EOFError()]:
@@ -65,7 +119,7 @@ class InstallerTest(unittest.TestCase):
             self.assertNotIn(key, config)
         link = self.home / '.local/bin/codex-deepseek'
         self.assertEqual(link.resolve(), self.root / 'launcher.py')
-        self.assertTrue((self.root / 'install.py').is_file())
+        self.assertTrue((self.root / 'libs/_install.py').is_file())
         self.assertTrue((self.root / installer.SKILL / 'SKILL.md').is_file())
         self.assertFalse((self.root / installer.SKILL / 'SKILL.zh.md').exists())
         self.assertFalse((self.root / '.codex/skills').exists())
@@ -307,10 +361,11 @@ class InstallerTest(unittest.TestCase):
         with patch.object(installer, 'install', return_value=0) as run:
             installer.run(['install', '--dir', str(self.root), '--defaults',
                            '--with-messaging-skill', '--with-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True, bell=True)
+            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True, bell=True,
+                                        dry_run=False)
         with patch.object(installer, 'install_extra', return_value=0) as run:
             installer.run(['--dir', str(self.root), '--install-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.root, skill=False)
+            run.assert_called_once_with(self.root, skill=False, dry_run=False)
         for option in ('--config-source', '--force', '--install-hooks'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 installer.run(['install', option], source=self.source)
@@ -322,6 +377,82 @@ class InstallerTest(unittest.TestCase):
                 installer.run(['install', option], source=self.source)
             self.assertEqual(error.exception.code, 2)
             self.assertIn(f'codex-deepseek {option}', output.getvalue())
+
+    def test_update_preserves_home_sounds_and_backs_up_local_edits(self):
+        with patch('builtins.input', return_value='y'):
+            self.install(skill=True)
+        config = self.root / '.codex/config.toml'
+        original = config.read_bytes()
+        session = self.root / '.codex/session-fixture'
+        session.write_text('private session')
+        sound = self.root / installer.BELL_ASSETS / 'prompt.oga'
+        sound.write_bytes(b'custom sound')
+        missing_sound = self.root / installer.BELL_ASSETS / 'complete.oga'
+        missing_sound.unlink()
+        readme = self.root / 'README.md'
+        readme.write_text('local edit')
+        link = self.home / '.local/bin/codex-deepseek'
+        original_link = link.readlink()
+        with patch('builtins.input', return_value='y'):
+            self.assertEqual(installer.update(self.source, self.root), 0)
+        self.assertEqual(readme.read_bytes(), (self.source / 'README.md').read_bytes())
+        backups = list((self.root / '.update-backups').glob('update-*'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual((backups[0] / 'README.md').read_text(), 'local edit')
+        self.assertEqual(config.read_bytes(), original)
+        self.assertEqual(session.read_text(), 'private session')
+        self.assertEqual(sound.read_bytes(), b'custom sound')
+        self.assertFalse(missing_sound.exists())
+        self.assertEqual(link.readlink(), original_link)
+        with patch('builtins.input') as prompt:
+            installer.update(self.source, self.root)
+            prompt.assert_not_called()
+        self.assertEqual(len(list((self.root / '.update-backups').iterdir())), 1)
+
+    def test_update_dry_run_and_cancellation_do_not_write(self):
+        with patch('builtins.input', return_value='y'):
+            self.install()
+        (self.root / 'README.md').write_text('old version')
+        before = self.contents()
+        self.introduction.side_effect = self.original_introduction
+        for answers, dry_run in ((['y', 'y'], True), (['n'], False),
+                                 (['y', 'n'], False), (['y', EOFError()], False)):
+            with self.subTest(answers=answers), patch('builtins.input', side_effect=answers):
+                installer.update(self.source, self.root, dry_run=dry_run)
+            self.assertEqual(self.contents(), before)
+            self.assertEqual((self.root / 'README.md').read_text(), 'old version')
+
+    def test_update_refuses_redirected_paths_and_rechecks_before_writing(self):
+        with patch('builtins.input', return_value='y'):
+            self.install()
+        readme = self.root / 'README.md'
+        readme.unlink()
+        foreign = self.home / 'foreign'
+        foreign.write_text('keep')
+        readme.symlink_to(foreign)
+        with self.assertRaisesRegex(ValueError, 'symlinked update path'):
+            installer.update(self.source, self.root)
+        self.assertEqual(foreign.read_text(), 'keep')
+        readme.unlink()
+        readme.write_text('old')
+        def consent(_):
+            readme.write_text('changed during prompt')
+            return 'y'
+        with patch('builtins.input', side_effect=consent):
+            with self.assertRaisesRegex(ValueError, 'changed after planning'):
+                installer.update(self.source, self.root)
+        self.assertFalse((self.root / '.update-backups').exists())
+        with self.assertRaisesRegex(ValueError, 'separate checkout'):
+            installer.update(self.root, self.root)
+
+    def test_update_cli_routes_without_fresh_install_flags(self):
+        with patch.object(installer, 'update', return_value=0) as run:
+            installer.run(['install', '--update', '--dir', str(self.root), '--dry-run'],
+                          source=self.source)
+            run.assert_called_once_with(self.source, self.root, dry_run=True)
+        for option in ('--defaults', '--with-messaging-skill', '--with-bell-hook'):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                installer.run(['install', '--update', option], source=self.source)
 
     def test_toml_round_trip(self):
         source = ('title = "line\\nnext"\nvalues = [true, 3, 1.25, "x"]\n'

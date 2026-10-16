@@ -20,7 +20,8 @@ Codex CLI 0.162.1.
 ~/.local/bin/codex-deepseek          symlink to launcher.py
 ```
 
-`launcher.py` resolves both code and its private `.codex/` relative to itself.
+`launcher.py` is the command entry point; `libs/_install.py` and `libs/_config.py` are internal modules.
+It resolves both code and its private `.codex/` relative to itself.
 Keep API keys, session databases, transcripts, and configuration backups private.
 The model catalog comes from DeepSeek’s integration guide; see
 [model catalog provenance](MODEL-CATALOG.md) for its source and redistribution status.
@@ -32,20 +33,34 @@ Clone this repository and run the installer:
 ```sh
 git clone https://github.com/zxzxn3/codex-deepseek.git
 cd codex-deepseek
-python3 install.py
+python3 launcher.py install
 ```
 
 The default destination is `~/.local/share/codex-deepseek/`. To choose another
 directory and optional components:
 
 ```sh
-python3 install.py --dir ~/apps/codex-deepseek --defaults \
+python3 launcher.py install --dir ~/apps/codex-deepseek --defaults \
   --with-messaging-skill --with-bell-hook
 ```
 
 All four options are optional. `--defaults` skips configuration-source selection;
 it does not skip the final confirmation. The skill and bell hook are not enabled
 unless requested with their flags.
+
+Rehearse the interactive installation without changing files:
+
+```sh
+python3 launcher.py install --dry-run
+```
+
+Use the same destination and component flags as a real installation. Existing
+destination or command-link conflicts are reported but do not stop the preview;
+a real installation still refuses them. Dependencies and bundled files are
+checked. Configuration-source selection and both confirmation questions remain
+interactive; `--defaults` still skips only configuration-source selection. After
+confirmation, automatic steps are marked `simulated`, and the usual next steps
+are displayed. File changes and installation verification are skipped.
 
 The installer opens with a project-independence notice and a `Continue? [y/N]`
 question. Continuing does not approve file changes. Dependency diagnostics may
@@ -58,7 +73,7 @@ Installation proceeds in this order:
 1. Check dependencies, project files, destination paths and the command link.
    The destination `.codex/` must be absent or empty. A nonempty home is refused,
    even with `--defaults`. Different project files and unrelated command links
-   are not overwritten. This is a fresh installer, not an updater or migration tool.
+   are not overwritten. Use `--update` below for an existing installation.
 2. Without `--defaults`, if `~/.codex/config.toml` exists, ask whether to use
    Codex defaults (Enter) or copy that file. Both choices apply the required
    DeepSeek model, provider, model catalog and keyring authentication settings.
@@ -96,6 +111,34 @@ If an execution or verification step fails, the error identifies the step.
 Earlier steps may have completed; there is no automatic whole-install rollback.
 An inherited `CODEX_HOME` does not change the installation destination.
 
+## Update
+
+Download or pull the new version into a separate checkout, then run its installer:
+
+```sh
+cd /path/to/new/codex-deepseek
+python3 launcher.py install --update
+# Custom installation, or an interactive preview:
+python3 launcher.py install --update --dir ~/apps/codex-deepseek --dry-run
+```
+
+The installer lists changed and new project files, then asks for confirmation.
+Replaced files, including local edits, are backed up under the installation's
+`.update-backups/update-*/` directory. Review the list before approving; local
+code edits are replaced, not merged. Files removed from the new version are not
+automatically deleted.
+
+Your entire `.codex/`, configuration, credentials, sessions, command link and
+existing sound choices stay unchanged. Deleted sound files stay deleted. Optional
+components are not enabled or reconfigured; an already linked messaging skill
+uses the updated bundled files. Restart sessions after updating. If hook commands
+change in a future release, follow that release's instructions separately.
+
+Updates use the selected checkout and do not fetch releases or update Codex CLI.
+The checkout must differ from the installation directory. On failure, earlier
+files may already have been replaced; the error gives the backup location for
+manual recovery. There is no automatic rollback.
+
 ## Optional components
 
 These commands work after installation, independently of the configuration-source
@@ -105,6 +148,8 @@ choice. They show their plan and require confirmation before writing:
 codex-deepseek --install-messaging-skill
 codex-deepseek --install-bell-hook
 ```
+
+Add `--dry-run` to either command to preview its plan without changing files.
 
 The target defaults to the project directory containing the running launcher,
 including custom installations. Use `--dir /path/to/codex-deepseek` to select a
@@ -141,15 +186,15 @@ codex-deepseek -c 'model_reasoning_effort="max"'
 codex-deepseek resume --all
 ```
 
-`setup-key`, `--install-messaging-skill` and `--install-bell-hook`
+`install`, `setup-key`, `--install-messaging-skill` and `--install-bell-hook`
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
-passes this home's configured model through `-c model=...`. This selects the
-configured default on direct TUI startup. In Codex CLI 0.162.1 that root-level
-option does not reliably override the model for subcommands such as `exec`;
-use `codex-deepseek -m deepseek-flash exec ...` to select it explicitly.
-Project configuration can still override reasoning effort. Local management
-commands are passed through unchanged.
+passes this home's configured model through `--model`, unless you already supplied
+an explicit model option. This keeps the default model selection compatible with
+the shared background server. Explicit `-c` configuration overrides may make
+Codex use an embedded server instead; that session cannot be reached through the
+shared daemon's queue or status endpoint. Project configuration can still override
+reasoning effort. Local management commands are passed through unchanged.
 
 Local management commands (`queue`, `agents`, `archive`, `delete`, `unarchive`,
 `migrate-rollouts`, `completion`, `features`, `apply`, `sandbox`, `logout`) and
@@ -179,9 +224,53 @@ live snapshot. Back up the keyring and any external symlink targets separately.
 
 Restore at the same absolute path when possible. Moving the project changes
 `CODEX_HOME` and may require updating catalog, database, and external paths.
-`install.py` does not migrate history and refuses nonempty homes. Do not use it to
+`launcher.py install` does not migrate history and refuses nonempty homes. Do not use it to
 restore or reset an existing environment.
 Restore the keyring separately or rerun `codex-deepseek setup-key`.
+
+## ASCII art
+
+```text
+                       __,.
+                    -=~` ` ,,
+                   $` __:^=~`~=^ __
+                   `-= _}*=?^^==+_ ~_
+                  _-+_=~ /`  ,` _`=_`#_
+                  `+_^ .     ?+, < "$_/_.
+                  _=[   /\   ] ___[ `_@*&_
+                 _$?   @_*<? ' ~=~?  ~[_ `~=-.
+              .=____$_ ^[~~   .  .[_// ~~^~`~~
+               ````?@~=+@*..___.*?]` [ #&
+                   $^. "+_=$@~_<"@[_&-_ =~ -_'#_[
+             *^` _=,< #] "[$<$@=@$?{, _  "=_`  `]>
+            _$`%=^~  _= ? `$ ?` '~\ \ $=__`~ -$_
+        _=?_`    .   =_  ?_?,       ],`_/*>&-*`-{=_
+      _ [}]~   -^    ,~  _~\>-------@_ "  `~>~  ^<%\
+      [--~    ]*  $-/   *``_--.....-@^=._-=' ,  _"#/
+      `~] ,#=  _=@_   _/%-{'        `$__/   _~_]^$"
+          = ?%[_`~$\.=@=/_'           \?-_+['.@ `        =_
+         <%{`  `_]=$=~_$ '             \?,`~ -_,       ,< `,
+          "~=<" _*~  >"~"               -=^< _*"    _=~    [
+              _<`  _{  = ,              ==  ?@.___  ^     #~
+           ,==,   ,`   *," ,          _/ *   `\   ~~\   _*`
+           ~- `=+$     _^ __~ =---== ` +=`\    #+_.._  /'
+            `=.>  ?=+._^   `\===..>=? ^   _%-='_.^  _  @
+                ?-.+_  ~==-..._____,[--==^~ _-=^  _*~ _\
+                    ~!==.___  ````` ___.=-=^`~==?~   _~
+                         !  ~%^~~^^~'@<_          _> `
+                        $    /   ,   `  ~^^=====^~
+                        ^   _    $   _
+                         %  ?    $  _(
+                         ~ =`>  *\. %
+                         _` ~   #= =^
+                         @_**[ ___ $[
+                         ?$__@_$~~$@
+                          ~===%@@@@~
+                               ```
+```
+
+Adapted into ASCII with GPT, using Chafa for the character conversion.
+See [artwork credits](assets/logo/README.md) for the original artists and license.
 
 ## References
 

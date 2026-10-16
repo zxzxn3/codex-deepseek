@@ -11,7 +11,7 @@ Paths are shell-quoted, including installations whose paths contain spaces.
 Each command checks that its sound file exists before playing. Missing files
 produce no output and return success; they do not prevent hook installation.
 
-The hook is opt-in: `python3 install.py --with-bell-hook`, or
+The hook is opt-in: `python3 launcher.py install --with-bell-hook`, or
 `codex-deepseek --install-bell-hook` for an existing installation. Review and
 trust the installed handlers in Codex `/hooks` before expecting playback.
 
