@@ -4,6 +4,11 @@ An unofficial launcher for using Codex CLI with your own DeepSeek API key.
 Not affiliated with or endorsed by OpenAI or DeepSeek. Codex CLI is installed
 separately; requests go directly to the configured DeepSeek API endpoint.
 
+DeepSeek's [official setup](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)
+configures your existing Codex home. This launcher creates a separate DeepSeek
+home so ordinary Codex and DeepSeek can coexist, and stores your API key in the
+desktop keyring instead of the configuration file.
+
 Launch Codex with DeepSeek in an independent `CODEX_HOME`. Requirements:
 Linux, Codex CLI 0.158.0+, Python 3.11+, `secret-tool`, an unlocked desktop
 Secret Service keyring, and a DeepSeek API key.
