@@ -6,7 +6,6 @@ import subprocess
 import sys
 import unittest
 import tempfile
-import tomllib
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import launcher
@@ -132,6 +131,30 @@ class KeyPreflightTest(unittest.TestCase):
                      ['--unknown-option', 'queue'], ['-i', 'image.png', 'queue']]:
             with self.subTest(args=args):
                 self.assertTrue(launcher.requires_key(args))
+
+
+class BackgroundPreflightTest(unittest.TestCase):
+    def test_proxy_skips_credentials_but_daemon_start_does_not(self):
+        for args in (["app-server", "proxy"], ["-C", "/tmp", "app-server", "proxy", "--sock", "/tmp/socket"]):
+            self.assertFalse(launcher.requires_key(args))
+        self.assertTrue(launcher.requires_key(["app-server", "daemon", "start"]))
+        self.assertTrue(launcher.requires_key(["exec", "app-server", "proxy"]))
+
+    def test_background_start_has_bounded_keyring_wait(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            (path / "config.toml").write_text('model="deepseek-flash"')
+            with patch.object(launcher, "DATA", path), patch.object(launcher, "check_key") as key, \
+                    patch.object(launcher.os, "execvpe"):
+                launcher.main(["app-server", "daemon", "start"])
+                key.assert_called_once_with(timeout=15)
+
+    def test_keyring_timeout_is_classified_without_secret_output(self):
+        error = subprocess.TimeoutExpired(["secret-tool", "lookup"], 5, output="private")
+        with patch.object(launcher.subprocess, "run", side_effect=error):
+            with self.assertRaises(launcher.KeyringUnavailable) as caught:
+                launcher.read_key(timeout=5)
+        self.assertNotIn("private", str(caught.exception))
 
 
 if __name__ == '__main__':

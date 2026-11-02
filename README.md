@@ -109,7 +109,7 @@ codex-deepseek setup-key
 The command requires an interactive terminal and refuses input if it cannot
 hide the key. It saves the key in the desktop keyring under
 `application=codex-deepseek provider=deepseek`, and reads it back to verify it.
-The key is not written into `config.toml`. Installation verification does not
+The key is not written into `config.toml`. Local `app-server proxy` forwarding skips the launcher keyring preflight; daemon startup still requires credentials. Background `app-server daemon start` bounds this preflight to 15 seconds and exits 78 when the keyring is unavailable, so a gateway can report the cause and retry after desktop unlock. Other model-capable commands retain their 60-second preflight. Installation verification does not
 make a paid API request or establish model connectivity.
 
 If an execution or verification step fails, the error identifies the step.

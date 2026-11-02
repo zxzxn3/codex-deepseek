@@ -15,7 +15,10 @@ DATA = HERE / ".codex"
 # Local imports must not write bytecode before an installation is confirmed.
 sys.dont_write_bytecode = True
 
-from libs._config import KEY_ATTRIBUTES, MODELS, catalog, configuration, toml_config
+from libs._config import (
+    KEY_ATTRIBUTES, MODELS as MODELS, catalog as catalog,
+    configuration as configuration, toml_config as toml_config,
+)
 
 
 VALUE_OPTIONS = {'-c', '--config', '--enable', '--disable', '-m', '--model', '-p', '--profile',
@@ -42,17 +45,24 @@ def save_key() -> None:
     print("Saved credential to the desktop Secret Service keyring")
 
 
-def read_key() -> str:
-    result = subprocess.run(["secret-tool", "lookup", *KEY_ATTRIBUTES],
-                            capture_output=True, text=True, timeout=60)
+class KeyringUnavailable(ValueError):
+    """An unavailable desktop credential; exit 78 is reserved for this preflight."""
+
+
+def read_key(*, timeout=60) -> str:
+    try:
+        result = subprocess.run(["secret-tool", "lookup", *KEY_ATTRIBUTES],
+                                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise KeyringUnavailable("Desktop keyring lookup timed out; unlock your keyring and retry") from None
     key = result.stdout.strip()
     if result.returncode or not key or any(c.isspace() for c in key):
-        raise ValueError("Unlock your keyring or run codex-deepseek setup-key")
+        raise KeyringUnavailable("Unlock your keyring or run codex-deepseek setup-key")
     return key
 
 
-def check_key() -> None:
-    read_key()
+def check_key(*, timeout=60) -> None:
+    read_key(timeout=timeout)
 
 
 def requires_key(args: list[str]) -> bool:
@@ -86,6 +96,8 @@ def requires_key(args: list[str]) -> bool:
             continue
         if token in local:
             return False
+        if token == 'app-server' and args[index + 1:index + 2] == ['proxy']:
+            return False  # Raw local socket forwarding never invokes the model provider.
         if token in commands and args[index + 1:] in (['--help'], ['-h']):
             return False
         return True  # prompt, unknown option, or a model-capable command
@@ -139,7 +151,10 @@ def main(args: list[str]) -> int:
             # --model selects the default while allowing the shared daemon.
             if not explicit_model(args):
                 forwarded = ['--model', model, *args]
-        check_key()
+        if args[-3:] == ['app-server', 'daemon', 'start']:
+            check_key(timeout=15)  # A background service cannot wait indefinitely for desktop input.
+        else:
+            check_key()
     env = os.environ.copy()
     # Intended CODEX_HOME override: isolate auth, daemon, history and model catalog.
     env["CODEX_HOME"] = str(DATA)
@@ -155,6 +170,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\ncodex-deepseek: cancelled", file=sys.stderr)
         raise SystemExit(130)
+    except KeyringUnavailable as error:
+        print(f"codex-deepseek: {error}", file=sys.stderr)
+        raise SystemExit(os.EX_CONFIG)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"codex-deepseek: {error}", file=sys.stderr)
         raise SystemExit(1)
