@@ -109,8 +109,12 @@ subprocess argument array over shell interpolation. Consult `codex queue --help`
 if syntax is uncertain.
 
 Use queue as the fallback for an idle recipient, not as the default for a
-working one. `Queued message` confirms enqueueing, not processing or completion. Report that
-once and wait for the requested reply; do not poll or resend just because no
-reply has arrived. If sending fails, report the error. Replies use the same
-address and status checks; report unavailable recipients instead of silently
-queueing to inactive sessions. Do not acknowledge acknowledgments in a loop.
+working one. `Queued message` confirms enqueueing, not processing or completion.
+After a successful send, report it once and immediately finish the current turn.
+Do not poll session status, call `wait_agent`, sleep, or resend while waiting for
+a reply. `wait_agent` only handles in-process subagents and cannot receive a
+reply from another Codex session; a requested reply arrives later as a new
+queued message and starts a new turn. If sending fails, report the error.
+Replies use the same address and status checks; report unavailable recipients
+instead of silently queueing to inactive sessions. Do not acknowledge
+acknowledgments in a loop.
