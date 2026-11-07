@@ -15,7 +15,7 @@ MODELS = ("deepseek-flash", "deepseek-v4-pro")
 
 def catalog() -> dict:
     # Vendored official model metadata; no external project dependency.
-    result = json.loads((HERE / "models.json").read_text())
+    result = json.loads((HERE / "models.json").read_text(encoding='utf-8'))
     if {m["slug"] for m in result["models"]} != set(MODELS):
         raise ValueError("Upstream model catalog changed; review before installing")
     return result

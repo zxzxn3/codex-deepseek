@@ -201,7 +201,7 @@ def config_source(defaults: bool) -> tuple[str, str]:
         if answer in ('', '1'):
             return '', 'Codex defaults'
         if answer == '2':
-            return ordinary.read_text(), f'Copy {ordinary}'
+            return ordinary.read_text(encoding='utf-8'), f'Copy {ordinary}'
         if answer == 'q':
             raise ValueError('Installation cancelled; no files changed')
         print('Choose 1 or 2, or q to cancel.')
@@ -212,7 +212,7 @@ def bell_config(text: str, *, root: Path, resources: Path | None = None) -> str:
     if not player:
         raise ValueError('Bell hook requires paplay')
     resources = resources or root
-    template = tomllib.loads((resources / BELL).read_text()).get('hooks')
+    template = tomllib.loads((resources / BELL).read_text(encoding='utf-8')).get('hooks')
     if not isinstance(template, dict) or not template:
         raise ValueError('Bell template must contain hooks')
     data = tomllib.loads(text)
@@ -377,7 +377,7 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, bell=False
         home.chmod(0o700)
         operation_row(operations, 2, 'done', manual_steps=2)
         fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'w') as stream:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             stream.write(text)
         operation_row(operations, 3, 'done', manual_steps=2)
         step = 'create command link'
@@ -394,9 +394,9 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, bell=False
         for relative, (content, _) in files.items():
             if (root / relative).read_bytes() != content:
                 raise ValueError(f'File verification failed: {relative}')
-        if config.read_text() != text:
+        if config.read_text(encoding='utf-8') != text:
             raise ValueError('Config verification failed')
-        tomllib.loads(config.read_text())
+        tomllib.loads(config.read_text(encoding='utf-8'))
         verify_link(root / 'launcher.py', link)
         if not os.access(root / 'launcher.py', os.X_OK):
             raise ValueError('Launcher is not executable')
@@ -422,7 +422,7 @@ def installed_home(root: Path) -> tuple[Path, str]:
         raise ValueError('Refusing to modify a symlinked home or config')
     if not (root / 'launcher.py').is_file() or not (root / 'models.json').is_file() or not config.is_file():
         raise ValueError(f'No installed codex-deepseek home at {root}')
-    text = config.read_text()
+    text = config.read_text(encoding='utf-8')
     if tomllib.loads(text).get('model_provider') != 'deepseek':
         raise ValueError(f'Configuration does not select DeepSeek: {config}')
     return root, text
@@ -483,7 +483,7 @@ def update(source: Path, root: Path, *, dry_run=False) -> int:
     if dry_run:
         simulate_operations(operations)
         return 0
-    if snapshot() != before or (root / '.codex/config.toml').read_text() != original_config:
+    if snapshot() != before or (root / '.codex/config.toml').read_text(encoding='utf-8') != original_config:
         raise ValueError('Installation changed after planning; no changes applied; run again')
     backups = root / '.update-backups'
     if backups.is_symlink():
@@ -519,7 +519,7 @@ def update(source: Path, root: Path, *, dry_run=False) -> int:
         for relative, (content, _) in changes.items():
             if (root / relative).read_bytes() != content:
                 raise ValueError(f'File verification failed: {relative}')
-        if (root / '.codex/config.toml').read_text() != original_config:
+        if (root / '.codex/config.toml').read_text(encoding='utf-8') != original_config:
             raise ValueError('Configuration changed during update')
         operation_row(operations, 3, 'done')
     except (OSError, ValueError, KeyboardInterrupt) as error:
@@ -575,7 +575,7 @@ def install_extra(root: Path, *, skill=False, dry_run=False) -> int:
     if dry_run:
         simulate_operations(operations)
         return 0
-    if (home / 'config.toml').read_text() != original:
+    if (home / 'config.toml').read_text(encoding='utf-8') != original:
         raise ValueError('Configuration changed after planning; no changes applied; run again')
     phase('Applying changes...')
     try:
@@ -586,20 +586,20 @@ def install_extra(root: Path, *, skill=False, dry_run=False) -> int:
         else:
             # Backup is exclusive, and the replacement is validated before it is written.
             with backup.open('xb') as stream:
-                stream.write(original.encode())
+                stream.write(original.encode('utf-8'))
             backup.chmod(0o600)
             operation_row(operations, 1, 'done')
             temporary = config.with_name(f'config.toml.tmp.{os.getpid()}')
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
-                with os.fdopen(fd, 'w') as stream:
+                with os.fdopen(fd, 'w', encoding='utf-8') as stream:
                     stream.write(updated)
                 temporary.replace(config)
             finally:
                 temporary.unlink(missing_ok=True)
-            if config.read_text() != updated:
+            if config.read_text(encoding='utf-8') != updated:
                 raise ValueError('Bell hook config verification failed')
-            tomllib.loads(config.read_text())
+            tomllib.loads(config.read_text(encoding='utf-8'))
             operation_row(operations, 2, 'done')
     except (OSError, ValueError) as error:
         raise ValueError(f'Optional component installation failed: {error}; '
