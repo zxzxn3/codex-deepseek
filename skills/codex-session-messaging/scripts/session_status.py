@@ -28,6 +28,8 @@ STATUS_LABELS = {
     "notLoaded": "inactive",
 }
 
+MAX_FRAME = 1 << 24  # 16 MiB; a local daemon should never send more in one frame
+
 
 class WebSocket:
     """Minimal text-frame WebSocket client over an already connected socket."""
@@ -77,6 +79,8 @@ class WebSocket:
                 length = struct.unpack(">H", self._read(2))[0]
             elif length == 127:
                 length = struct.unpack(">Q", self._read(8))[0]
+            if length > MAX_FRAME:
+                raise RuntimeError(f"oversized WebSocket frame: {length}")
             mask = self._read(4) if masked else None
             payload = self._read(length)
             if mask:
@@ -120,7 +124,8 @@ class Rpc:
             return message.get("result", {})
 
 
-def connect(home, timeout):
+def connect(home, timeout, *, client, capabilities=None):
+    """Connect to the home's app-server control socket and complete the RPC handshake."""
     link = os.path.join(home, "app-server-control", "app-server-control.sock")
     if not os.path.exists(link):
         raise RuntimeError(f"no control socket for {home}")
@@ -148,12 +153,11 @@ def connect(home, timeout):
     status_line = head.split(b"\r\n")[0].decode(errors="replace")
     if "101" not in status_line:
         raise RuntimeError(f"handshake rejected: {status_line}")
-    ws = WebSocket(sock, leftover)
-    rpc = Rpc(ws)
-    rpc.call(
-        "initialize",
-        {"clientInfo": {"name": "session-status-probe", "version": "0.1.0"}},
-    )
+    rpc = Rpc(WebSocket(sock, leftover))
+    params = {"clientInfo": {"name": client, "version": "0.1.0"}}
+    if capabilities:
+        params["capabilities"] = capabilities
+    rpc.call("initialize", params)
     rpc.notify("initialized", {})
     return rpc
 
@@ -231,7 +235,7 @@ def main():
     for home in homes:
         entry = {"home": home, "threads": []}
         try:
-            rpc = connect(home, args.timeout)
+            rpc = connect(home, args.timeout, client="session-status-probe")
             names = {}
             if args.thread:
                 ids = [args.thread]

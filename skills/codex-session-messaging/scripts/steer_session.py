@@ -2,60 +2,19 @@
 """Inject a message into a running Codex turn with turn/steer."""
 
 import argparse
-import base64
 import json
 import os
-import socket
 import sys
 import time
 import uuid
 
-from session_status import Rpc, WebSocket
+from session_status import connect
 
 
 ACTIVE_TURN_STATES = {"inProgress", "in_progress", "active"}
 
 
-def connect_experimental(home: str, timeout: float) -> Rpc:
-    link = os.path.join(home, "app-server-control", "app-server-control.sock")
-    if not os.path.exists(link):
-        raise RuntimeError(f"no control socket for {home}")
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    sock.connect(os.path.realpath(link))
-    key = base64.b64encode(os.urandom(16)).decode()
-    sock.sendall(
-        (
-            "GET / HTTP/1.1\r\n"
-            "Host: localhost\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Key: {key}\r\n"
-            "Sec-WebSocket-Version: 13\r\n\r\n"
-        ).encode()
-    )
-    buf = b""
-    while b"\r\n\r\n" not in buf:
-        chunk = sock.recv(4096)
-        if not chunk:
-            raise RuntimeError("handshake failed: connection closed")
-        buf += chunk
-    head, leftover = buf.split(b"\r\n\r\n", 1)
-    if b"101" not in head.split(b"\r\n", 1)[0]:
-        raise RuntimeError("handshake rejected")
-    rpc = Rpc(WebSocket(sock, leftover))
-    rpc.call(
-        "initialize",
-        {
-            "clientInfo": {"name": "codex-turn-steer", "version": "0.1.0"},
-            "capabilities": {"experimentalApi": True},
-        },
-    )
-    rpc.notify("initialized", {})
-    return rpc
-
-
-def active_turn(rpc: Rpc, thread_id: str) -> dict | None:
+def active_turn(rpc, thread_id: str) -> dict | None:
     result = rpc.call("thread/turns/list", {"threadId": thread_id, "limit": 10})
     for turn in result.get("data") or []:
         if turn.get("status") in ACTIVE_TURN_STATES:
@@ -87,7 +46,8 @@ def main() -> int:
 
     home = os.path.abspath(os.path.expanduser(args.home))
     try:
-        rpc = connect_experimental(home, args.timeout)
+        rpc = connect(home, args.timeout, client="codex-turn-steer",
+                      capabilities={"experimentalApi": True})
         thread = rpc.call("thread/read", {"threadId": args.thread, "includeTurns": False}).get("thread") or {}
         runtime = thread.get("status") or {}
         status = runtime.get("type")
