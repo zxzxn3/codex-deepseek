@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -19,6 +20,12 @@ class InstallerTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
+        probe = self.home / '.link-probe'
+        try:
+            probe.symlink_to(self.home)
+            probe.unlink()
+        except (OSError, NotImplementedError):
+            self.skipTest('symlink creation requires privileges on this platform')
         self.root = self.home / 'app with spaces'
         self.source = launcher.HERE
         self.enterContext(patch.object(installer.Path, 'home', return_value=self.home))
@@ -324,6 +331,7 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(sound.read_bytes(), b'custom sound fixture')
         self.assertEqual(config.read_bytes(), before)
 
+    @unittest.skipUnless(os.name == 'posix', 'plays sounds through /bin/sh')
     def test_missing_sound_skips_player_and_returns_success(self):
         import shlex
         import subprocess
@@ -356,27 +364,6 @@ class InstallerTest(unittest.TestCase):
              patch('builtins.input') as ask:
             installer.install_extra(self.root)
             ask.assert_not_called()
-
-    def test_cli_has_no_copy_or_overwrite_switch(self):
-        with patch.object(installer, 'install', return_value=0) as run:
-            installer.run(['install', '--dir', str(self.root), '--defaults',
-                           '--with-messaging-skill', '--with-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True, bell=True,
-                                        dry_run=False)
-        with patch.object(installer, 'install_extra', return_value=0) as run:
-            installer.run(['--dir', str(self.root), '--install-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.root, skill=False, dry_run=False)
-        for option in ('--config-source', '--force', '--install-hooks'):
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                installer.run(['install', option], source=self.source)
-
-    def test_component_flags_explain_the_correct_entry(self):
-        for option in ('--install-messaging-skill', '--install-bell-hook'):
-            output = io.StringIO()
-            with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as error:
-                installer.run(['install', option], source=self.source)
-            self.assertEqual(error.exception.code, 2)
-            self.assertIn(f'codex-deepseek {option}', output.getvalue())
 
     def test_update_preserves_home_sounds_and_backs_up_local_edits(self):
         with patch('builtins.input', return_value='y'):
@@ -444,6 +431,37 @@ class InstallerTest(unittest.TestCase):
         self.assertFalse((self.root / '.update-backups').exists())
         with self.assertRaisesRegex(ValueError, 'separate checkout'):
             installer.update(self.root, self.root)
+
+
+class RoutingTest(unittest.TestCase):
+    """CLI routing and TOML serialization; they run without symlink support."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.source = launcher.HERE
+        self.root = Path(self.temp.name) / 'dest'
+
+    def test_cli_has_no_copy_or_overwrite_switch(self):
+        with patch.object(installer, 'install', return_value=0) as run:
+            installer.run(['install', '--dir', str(self.root), '--defaults',
+                           '--with-messaging-skill', '--with-bell-hook'], source=self.source)
+            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True, bell=True,
+                                        dry_run=False)
+        with patch.object(installer, 'install_extra', return_value=0) as run:
+            installer.run(['--dir', str(self.root), '--install-bell-hook'], source=self.source)
+            run.assert_called_once_with(self.root, skill=False, dry_run=False)
+        for option in ('--config-source', '--force', '--install-hooks'):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                installer.run(['install', option], source=self.source)
+
+    def test_component_flags_explain_the_correct_entry(self):
+        for option in ('--install-messaging-skill', '--install-bell-hook'):
+            output = io.StringIO()
+            with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as error:
+                installer.run(['install', option], source=self.source)
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn(f'codex-deepseek {option}', output.getvalue())
 
     def test_update_cli_routes_without_fresh_install_flags(self):
         with patch.object(installer, 'update', return_value=0) as run:

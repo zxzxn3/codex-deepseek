@@ -18,5 +18,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 - `test_integration.py`: native Responses tools and reasoning against a local SSE server.
 
 Tests use disposable data, without saved credentials or paid API requests.
-The integration test requires the installed Codex binary.
+Tests declare their own platform needs and skip cleanly: the installer suite
+requires symlink creation privileges, the sound playback case runs on POSIX
+only, and the integration test needs the Codex binary on a POSIX host. Text
+files are read and written as UTF-8 regardless of the system locale.
 Metered live probes remain in [`../probes/`](../probes/README.md).

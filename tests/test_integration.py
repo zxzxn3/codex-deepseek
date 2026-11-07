@@ -14,7 +14,11 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import launcher
 
+CODEX = shutil.which("codex")
 
+
+@unittest.skipUnless(CODEX and os.name == "posix",
+                     "requires the installed Codex binary on a POSIX host")
 class IntegrationTest(unittest.TestCase):
     def test_native_responses_tools_and_reasoning_round_trip(self):
         requests = []
@@ -24,10 +28,11 @@ class IntegrationTest(unittest.TestCase):
             work = root / "work"
             home.mkdir()
             work.mkdir()
-            (home / "models.json").write_text(json.dumps(launcher.catalog()))
+            (home / "models.json").write_text(json.dumps(launcher.catalog()), encoding="utf-8")
             (home / "config.toml").write_text(
                 launcher.configuration().replace(str(launcher.DATA), str(home))
-                .replace(str(launcher.HERE / "models.json"), str(home / "models.json")))
+                .replace(str(launcher.HERE / "models.json"), str(home / "models.json")),
+                encoding="utf-8")
 
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self, *args):
@@ -78,7 +83,7 @@ class IntegrationTest(unittest.TestCase):
             worker = threading.Thread(target=server.serve_forever, daemon=True)
             worker.start()
             try:
-                args = ["codex", "exec", "--strict-config", "--skip-git-repo-check", "--ephemeral", "--json",
+                args = [CODEX, "exec", "--strict-config", "--skip-git-repo-check", "--ephemeral", "--json",
                         "-c", f'model_providers.deepseek.base_url="http://127.0.0.1:{server.server_port}"',
                         "-c", f'model_providers.deepseek.auth.command={json.dumps(shutil.which("printf"))}',
                         "-c", 'model_providers.deepseek.auth.args=["offline-test-token"]',
