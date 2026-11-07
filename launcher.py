@@ -15,10 +15,7 @@ DATA = HERE / ".codex"
 # Local imports must not write bytecode before an installation is confirmed.
 sys.dont_write_bytecode = True
 
-from libs._config import (
-    KEY_ATTRIBUTES, MODELS as MODELS, catalog as catalog,
-    configuration as configuration, toml_config as toml_config,
-)
+from libs._config import KEY_ATTRIBUTES, MODELS as MODELS, catalog as catalog, configuration as configuration
 
 
 VALUE_OPTIONS = {'-c', '--config', '--enable', '--disable', '-m', '--model', '-p', '--profile',
@@ -40,8 +37,12 @@ def save_key() -> None:
     subprocess.run(["secret-tool", "store", "--label=Codex DeepSeek API key",
                     *KEY_ATTRIBUTES], input=key, text=True, capture_output=True,
                    check=True, timeout=60)
-    if read_key() != key:
-        raise ValueError("Keyring verification failed")
+    try:
+        stored = read_key()
+    except KeyringUnavailable as error:
+        raise ValueError(f"Keyring verification failed: {error}") from None
+    if stored != key:
+        raise ValueError("Keyring verification failed: the keyring returned a different secret")
     print("Saved credential to the desktop Secret Service keyring")
 
 
@@ -65,6 +66,33 @@ def check_key(*, timeout=60) -> None:
     read_key(timeout=timeout)
 
 
+def _walk(args: list[str]):
+    """Yield (index, option, value) per argument, skipping consumed option values.
+
+    A recognized value option yields its attached value (possibly ''); every
+    other token yields value=None, and '--' terminates the scan. requires_key
+    and explicit_model must agree on this tokenization; both consume it.
+    """
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == '--':
+            yield index, token, None
+            return
+        if token in VALUE_OPTIONS:
+            yield index, token, args[index + 1] if index + 1 < len(args) else ''
+            index += 2
+            continue
+        option, separator, value = token.partition('=')
+        if separator and option in VALUE_OPTIONS:
+            yield index, option, value
+        elif len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
+            yield index, token[:2], token[2:]  # e.g. -cmodel=x or -C/path
+        else:
+            yield index, token, None
+        index += 1
+
+
 def requires_key(args: list[str]) -> bool:
     """Recognise a conservative set of local commands, skipping global option values."""
     local = {'help', 'queue', 'agents', 'archive', 'delete', 'unarchive',
@@ -75,30 +103,20 @@ def requires_key(args: list[str]) -> bool:
     commands = local | {'exec', 'e', 'review', 'resume', 'fork', 'app-server', 'exec-server',
                         'remote-control', 'cloud', 'update', 'mcp', 'plugin', 'doctor',
                         'debug', 'login'}
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == '--':
-            return True
-        if token in {'--help', '-h', '--version', '-V'}:
+    for index, option, value in _walk(args):
+        if value is not None:
+            continue  # an option's consumed value is never a command
+        if option == '--':
+            return True  # everything after -- is a literal prompt or argument
+        if option in ('--help', '-h', '--version', '-V'):
             return False
-        if token in VALUE_OPTIONS:
-            index += 2
+        if option in flags:
             continue
-        if token.partition('=')[0] in VALUE_OPTIONS and '=' in token:
-            index += 1
-            continue
-        if len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
-            index += 1  # e.g. -cmodel=x or -C/path
-            continue
-        if token in flags:
-            index += 1
-            continue
-        if token in local:
+        if option in local:
             return False
-        if token == 'app-server' and args[index + 1:index + 2] == ['proxy']:
+        if option == 'app-server' and args[index + 1:index + 2] == ['proxy']:
             return False  # Raw local socket forwarding never invokes the model provider.
-        if token in commands and args[index + 1:] in (['--help'], ['-h']):
+        if option in commands and args[index + 1:] in (['--help'], ['-h']):
             return False
         return True  # prompt, unknown option, or a model-capable command
     return True
@@ -106,23 +124,8 @@ def requires_key(args: list[str]) -> bool:
 
 def explicit_model(args: list[str]) -> bool:
     """Respect model options without mistaking other options' values for flags."""
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == '--':
-            break
-        option, separator, value = token.partition('=')
-        if token in VALUE_OPTIONS:
-            option = token
-            value = args[index + 1] if index + 1 < len(args) else ''
-            index += 2
-        elif separator and option in VALUE_OPTIONS:
-            index += 1
-        elif len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
-            option, value = token[:2], token[2:]
-            index += 1
-        else:
-            index += 1
+    for _index, option, value in _walk(args):
+        if value is None:
             continue
         if option in ('-m', '--model'):
             return True
@@ -142,7 +145,7 @@ def main(args: list[str]) -> int:
         raise ValueError("Run python3 launcher.py install in the codex-deepseek project first")
     forwarded = args
     if requires_key(args):
-        config = tomllib.loads((DATA / 'config.toml').read_text())
+        config = tomllib.loads((DATA / 'config.toml').read_text(encoding='utf-8'))
         model = config.get('model')
         if model is not None:
             if not isinstance(model, str) or not model.strip():
@@ -172,7 +175,7 @@ if __name__ == "__main__":
         raise SystemExit(130)
     except KeyringUnavailable as error:
         print(f"codex-deepseek: {error}", file=sys.stderr)
-        raise SystemExit(os.EX_CONFIG)
+        raise SystemExit(getattr(os, 'EX_CONFIG', 78))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"codex-deepseek: {error}", file=sys.stderr)
         raise SystemExit(1)
