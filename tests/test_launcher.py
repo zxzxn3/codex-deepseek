@@ -79,7 +79,8 @@ class KeyPreflightTest(unittest.TestCase):
         for args in [['queue', '--message', 'hello'], ['agents'], ['help', 'exec'],
                      ['-h'], ['-V'], ['exec', '--help'],
                      ['-c', 'model=x', 'queue'], ['--config=model=x', 'agents'],
-                     ['-C', '/tmp', 'archive', 'id'], ['-cmodel=x', 'queue']]:
+                     ['-C', '/tmp', 'archive', 'id'], ['-cmodel=x', 'queue'],
+                     ['-c', '--', 'queue']]:
             with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
                 data = Path(tmp)
                 (data / 'config.toml').write_text('')
@@ -104,7 +105,8 @@ class KeyPreflightTest(unittest.TestCase):
                 self.assertEqual(execute.call_args.args[2]['CODEX_HOME'], str(data))
 
     def test_explicit_models_are_not_overridden(self):
-        for args in (['-m', 'deepseek-v4-pro'], ['--model=custom'], ['-mcustom'],
+        for args in (['-m', 'deepseek-v4-pro'], ['--model=custom'], ['-mcustom'], ['-m'],
+                     ['--model', 'custom', 'queue'],
                      ['exec', '--model', 'custom', 'hello'],
                      ['-c', 'model="custom"', 'exec', 'hello'],
                      ['--config=model="custom"'], ['-cmodel="custom"']):
@@ -118,13 +120,13 @@ class KeyPreflightTest(unittest.TestCase):
                 self.assertEqual(execute.call_args.args[1], ['codex', *args])
 
     def test_model_detection_skips_option_values_and_literal_arguments(self):
-        for args in (['-C', '--model'], ['--', '-m', 'literal'],
+        for args in (['-C', '--model'], ['--', '-m', 'literal'], ['--profile', '-m'],
                      ['-c', 'model_reasoning_effort="high"']):
             with self.subTest(args=args):
                 self.assertFalse(launcher.explicit_model(args))
 
     def test_prompts_and_option_values_do_not_become_commands(self):
-        for args in [[], ['exec', 'queue'], ['resume'], ['app-server'], ['doctor'],
+        for args in [[], ['exec', 'queue'], ['resume'], ['app-server'], ['doctor'], ['-m'],
                      ['please inspect', 'queue'], ['--', 'queue'],
                      ['-c', 'queue', 'exec', 'hi'], ['--profile', 'agents'],
                      ['-C', 'queue'], ['exec', '--', '--help'],
