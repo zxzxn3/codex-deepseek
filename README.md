@@ -195,11 +195,13 @@ codex-deepseek resume --all
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
 passes this home's configured model through `--model`, unless you already supplied
-an explicit model option. This keeps the default model selection compatible with
-the shared background server. Explicit `-c` configuration overrides may make
+an explicit model option. `resume` is excluded so Codex restores the model and
+reasoning effort saved with that session; an explicit model option still overrides
+the saved selection. The implicit model keeps the default model selection compatible
+with the shared background server. Explicit `-c` configuration overrides may make
 Codex use an embedded server instead; that session cannot be reached through the
-shared daemon's queue or status endpoint. Project configuration can still override
-reasoning effort. Local management commands are passed through unchanged.
+shared daemon's queue or status endpoint. Local management commands are passed
+through unchanged.
 
 Local management commands (`queue`, `agents`, `archive`, `delete`, `unarchive`,
 `migrate-rollouts`, `completion`, `features`, `apply`, `sandbox`, `logout`) and

@@ -24,6 +24,9 @@ from libs._config import (
 VALUE_OPTIONS = {'-c', '--config', '--enable', '--disable', '-m', '--model', '-p', '--profile',
                  '-s', '--sandbox', '-C', '--cd', '--add-dir', '-a', '--ask-for-approval',
                  '--local-provider', '--remote', '--remote-auth-token-env'}
+COMMAND_FLAGS = {'--strict-config', '--oss', '--approve-for-me', '--worktree', '--search',
+                 '--no-alt-screen', '--no-daemon', '--dangerously-bypass-approvals-and-sandbox',
+                 '--dangerously-bypass-hook-trust'}
 
 
 def save_key() -> None:
@@ -69,9 +72,6 @@ def requires_key(args: list[str]) -> bool:
     """Recognise a conservative set of local commands, skipping global option values."""
     local = {'help', 'queue', 'agents', 'archive', 'delete', 'unarchive',
              'migrate-rollouts', 'completion', 'features', 'apply', 'a', 'sandbox', 'logout'}
-    flags = {'--strict-config', '--oss', '--approve-for-me', '--worktree', '--search',
-             '--no-alt-screen', '--no-daemon', '--dangerously-bypass-approvals-and-sandbox',
-             '--dangerously-bypass-hook-trust'}
     commands = local | {'exec', 'e', 'review', 'resume', 'fork', 'app-server', 'exec-server',
                         'remote-control', 'cloud', 'update', 'mcp', 'plugin', 'doctor',
                         'debug', 'login'}
@@ -91,7 +91,7 @@ def requires_key(args: list[str]) -> bool:
         if len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
             index += 1  # e.g. -cmodel=x or -C/path
             continue
-        if token in flags:
+        if token in COMMAND_FLAGS:
             index += 1
             continue
         if token in local:
@@ -131,6 +131,29 @@ def explicit_model(args: list[str]) -> bool:
     return False
 
 
+def resume_requested(args: list[str]) -> bool:
+    """Return whether the first command token is `resume`, skipping global options."""
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == '--':
+            return False
+        if token in VALUE_OPTIONS:
+            index += 2
+            continue
+        if token.partition('=')[0] in VALUE_OPTIONS and '=' in token:
+            index += 1
+            continue
+        if len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
+            index += 1
+            continue
+        if token in COMMAND_FLAGS:
+            index += 1
+            continue
+        return token == 'resume'
+    return False
+
+
 def main(args: list[str]) -> int:
     if args and args[0] in ('install', '--install-messaging-skill', '--install-bell-hook', '--dir', '--dry-run'):
         from libs import _install as installer
@@ -148,8 +171,9 @@ def main(args: list[str]) -> int:
             if not isinstance(model, str) or not model.strip():
                 raise ValueError('The DeepSeek home must configure a nonempty model name')
             # Generic -c overrides force an embedded server in Codex 0.162.1.
-            # --model selects the default while allowing the shared daemon.
-            if not explicit_model(args):
+            # --model selects the default while allowing the shared daemon. Resume
+            # omits it so Codex restores the model and effort saved with the thread.
+            if not explicit_model(args) and not resume_requested(args):
                 forwarded = ['--model', model, *args]
         if args[-3:] == ['app-server', 'daemon', 'start']:
             check_key(timeout=15)  # A background service cannot wait indefinitely for desktop input.
