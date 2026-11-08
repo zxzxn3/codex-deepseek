@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -131,8 +132,34 @@ def explicit_model(args: list[str]) -> bool:
     return False
 
 
-def resume_requested(args: list[str]) -> bool:
-    """Return whether the first command token is `resume`, skipping global options."""
+def explicit_config_key(args: list[str], key: str) -> bool:
+    """Return whether a `-c/--config key=value` override names `key`."""
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == '--':
+            break
+        option, separator, value = token.partition('=')
+        if token in VALUE_OPTIONS:
+            option = token
+            value = args[index + 1] if index + 1 < len(args) else ''
+            index += 2
+        elif separator and option in VALUE_OPTIONS:
+            index += 1
+        elif len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
+            option, value = token[:2], token[2:]
+            index += 1
+        else:
+            index += 1
+            continue
+        if option in ('-c', '--config') and \
+                value.partition('=')[0].strip().strip('"') == key:
+            return True
+    return False
+
+
+def restore_requested(args: list[str]) -> bool:
+    """Return whether the first command restores or selects an existing session."""
     index = 0
     while index < len(args):
         token = args[index]
@@ -150,7 +177,7 @@ def resume_requested(args: list[str]) -> bool:
         if token in COMMAND_FLAGS:
             index += 1
             continue
-        return token == 'resume'
+        return token in {'resume', 'agents', 'fork'}
     return False
 
 
@@ -170,11 +197,17 @@ def main(args: list[str]) -> int:
         if model is not None:
             if not isinstance(model, str) or not model.strip():
                 raise ValueError('The DeepSeek home must configure a nonempty model name')
-            # Generic -c overrides force an embedded server in Codex 0.162.1.
-            # --model selects the default while allowing the shared daemon. Resume
-            # omits it so Codex restores the model and effort saved with the thread.
-            if not explicit_model(args) and not resume_requested(args):
+            # A normal launch needs both values because Codex otherwise applies its
+            # server defaults. Session restore/select commands omit both so Codex
+            # restores the model and effort saved with the thread.
+            if not explicit_model(args) and not restore_requested(args):
                 forwarded = ['--model', model, *args]
+                effort = config.get('model_reasoning_effort')
+                if effort is not None:
+                    if not isinstance(effort, str) or not effort.strip():
+                        raise ValueError('model_reasoning_effort must be a nonempty string')
+                    if not explicit_config_key(args, 'model_reasoning_effort'):
+                        forwarded[:0] = ['-c', f'model_reasoning_effort={json.dumps(effort)}']
         if args[-3:] == ['app-server', 'daemon', 'start']:
             check_key(timeout=15)  # A background service cannot wait indefinitely for desktop input.
         else:

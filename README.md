@@ -188,6 +188,7 @@ codex                                      # ordinary Codex home
 codex-deepseek                             # DeepSeek Flash
 codex-deepseek -m deepseek-v4-pro
 codex-deepseek -c 'model_reasoning_effort="max"'
+codex-deepseek agents
 codex-deepseek resume --all
 ```
 
@@ -195,13 +196,17 @@ codex-deepseek resume --all
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
 passes this home's configured model through `--model`, unless you already supplied
-an explicit model option. `resume` is excluded so Codex restores the model and
-reasoning effort saved with that session; an explicit model option still overrides
-the saved selection. The implicit model keeps the default model selection compatible
-with the shared background server. Explicit `-c` configuration overrides may make
-Codex use an embedded server instead; that session cannot be reached through the
-shared daemon's queue or status endpoint. Local management commands are passed
-through unchanged.
+an explicit model option. It also passes the configured `model_reasoning_effort`;
+otherwise an enclosing project config, including the ordinary `~/.codex/config.toml`
+when started from the home directory, can replace it with a different effort.
+`resume`, `agents`, and `fork` are excluded from both defaults so Codex restores
+the model and reasoning effort saved with the selected session. An explicit model
+or effort option still overrides launch defaults. Local management commands are
+passed through unchanged.
+
+Start the command center with `codex-deepseek agents` when switching to saved
+sessions. Opening it from an already launched session retains that session's
+explicit model settings, as Codex 0.167 treats launch values as overrides.
 
 Local management commands (`queue`, `agents`, `archive`, `delete`, `unarchive`,
 `migrate-rollouts`, `completion`, `features`, `apply`, `sandbox`, `logout`) and

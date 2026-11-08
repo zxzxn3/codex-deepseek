@@ -103,10 +103,42 @@ class KeyPreflightTest(unittest.TestCase):
                                  ['codex', '--model', 'deepseek-flash', *args])
                 self.assertEqual(execute.call_args.args[2]['CODEX_HOME'], str(data))
 
-    def test_resume_restores_session_model_and_effort(self):
+    def test_home_reasoning_effort_is_forwarded_with_model(self):
+        for args in ([], ['exec', 'hello']):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
+                data = Path(tmp)
+                (data / 'config.toml').write_text(
+                    'model = "deepseek-flash"\nmodel_reasoning_effort = "high"\n')
+                with patch.object(launcher, 'DATA', data), \
+                     patch.object(launcher, 'check_key'), \
+                     patch.object(launcher.os, 'execvpe') as execute:
+                    launcher.main(args)
+                self.assertEqual(
+                    execute.call_args.args[1],
+                    ['codex', '-c', 'model_reasoning_effort="high"',
+                     '--model', 'deepseek-flash', *args],
+                )
+
+    def test_explicit_reasoning_effort_is_not_overridden(self):
+        args = ['-c', 'model_reasoning_effort="max"']
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / 'config.toml').write_text(
+                'model = "deepseek-flash"\nmodel_reasoning_effort = "high"\n')
+            with patch.object(launcher, 'DATA', data), \
+                 patch.object(launcher, 'check_key'), \
+                 patch.object(launcher.os, 'execvpe') as execute:
+                launcher.main(args)
+            self.assertEqual(
+                execute.call_args.args[1],
+                ['codex', '--model', 'deepseek-flash', *args],
+            )
+
+    def test_session_commands_restore_saved_model_and_effort(self):
         for args in (['resume', '--all'], ['resume', 'session-id'],
                      ['-C', '/tmp', 'resume', 'session-id'],
-                     ['--profile', 'work', 'resume', 'session-id']):
+                     ['--profile', 'work', 'resume', 'session-id'],
+                     ['agents'], ['fork', 'session-id']):
             with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
                 data = Path(tmp)
                 (data / 'config.toml').write_text('model = "deepseek-flash"\n')
@@ -136,14 +168,30 @@ class KeyPreflightTest(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertFalse(launcher.explicit_model(args))
 
-    def test_resume_detection_skips_global_option_values_and_literal_arguments(self):
+    def test_config_key_detection_skips_option_values_and_literal_arguments(self):
+        for args in (['-c', 'model_reasoning_effort="high"'],
+                     ['--config=model_reasoning_effort="high"'],
+                     ['-cmodel_reasoning_effort="high"']):
+            with self.subTest(args=args):
+                self.assertTrue(launcher.explicit_config_key(
+                    args, 'model_reasoning_effort'))
+        for args in (['--', '-c', 'model_reasoning_effort="high"'],
+                     ['-C', 'model_reasoning_effort=high'],
+                     ['-c', 'model="deepseek-flash"']):
+            with self.subTest(args=args):
+                self.assertFalse(launcher.explicit_config_key(
+                    args, 'model_reasoning_effort'))
+
+    def test_restore_detection_skips_global_option_values_and_literal_arguments(self):
         for args in (['resume'], ['resume', '--last'],
-                     ['-C', '/tmp', 'resume'], ['--model=x', 'resume']):
+                     ['-C', '/tmp', 'resume'], ['--model=x', 'resume'],
+                     ['agents'], ['fork', '--last']):
             with self.subTest(args=args):
-                self.assertTrue(launcher.resume_requested(args))
-        for args in ([], ['--', 'resume'], ['exec', 'resume'], ['-C', 'resume']):
+                self.assertTrue(launcher.restore_requested(args))
+        for args in ([], ['--', 'resume'], ['exec', 'resume'], ['-C', 'resume'],
+                     ['exec', 'agents']):
             with self.subTest(args=args):
-                self.assertFalse(launcher.resume_requested(args))
+                self.assertFalse(launcher.restore_requested(args))
 
     def test_prompts_and_option_values_do_not_become_commands(self):
         for args in [[], ['exec', 'queue'], ['resume'], ['app-server'], ['doctor'],
