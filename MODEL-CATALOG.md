@@ -12,10 +12,16 @@ code block in the official guide. Both model objects matched field for field:
 `deepseek-flash` and `deepseek-v4-pro`. This includes `base_instructions` and
 `model_messages`, not just the model names and context limits.
 
+On 2026-11-09, the four model identity sentences in the two
+`instructions_template` and two `base_instructions` fields were changed from
+"based on GPT-5" to "based on DeepSeek" so the prompt identifies the configured
+provider. No model slugs, capabilities, context limits, or provider settings
+were changed.
+
 Local file SHA-256 at verification:
 
 ```text
-bce20f679495809f4fa6e48672b6dcbab84b6adff5251890b6e6a21eddb9c12f
+4af4f46515987e75cdc2147ca00426a3e81b3ba9a89add19db44bcd37ae98689
 ```
 
 The setup script identifies itself as version 1.4.0. No script was executed;

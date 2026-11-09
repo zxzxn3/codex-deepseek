@@ -19,7 +19,7 @@ import codex_usage
 from codex_usage import TIMEZONE, estimate_cost, is_peak
 
 
-NOW = datetime(2026, 11, 9, 4, 0, tzinfo=timezone.utc)  # 12:00 in Shanghai.
+NOW = datetime(2026, 11, 9, 6, 0, tzinfo=timezone.utc)  # 14:00 in Shanghai.
 
 
 def event(kind: str, payload: dict, moment: str) -> dict:
@@ -28,7 +28,7 @@ def event(kind: str, payload: dict, moment: str) -> dict:
 
 def usage_record(response_id: str, *, provider: str = "deepseek",
                  model: str = "deepseek-flash", timestamp: str =
-                 "2026-11-09T02:00:00Z", input_tokens: int = 1000,
+                 "2026-11-09T05:00:00Z", input_tokens: int = 1000,
                  cached: int = 800, output: int = 100,
                  reasoning: int = 50) -> list[dict]:
     turn_id = f"turn-{response_id}"
@@ -175,7 +175,10 @@ class UsageParsingTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             home = root / "other-home"
-            write_rollout(home, usage_record("standalone"))
+            write_rollout(
+                home,
+                usage_record("standalone", timestamp="2026-11-08T05:00:00Z"),
+            )
             copied = home / "codex_usage.py"
             shutil.copyfile(Path(__file__).parents[1] / "usage_tool/codex_usage.py",
                             copied)
