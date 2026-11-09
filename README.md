@@ -33,7 +33,20 @@ The model catalog comes from DeepSeek’s integration guide; see
 
 ## Install
 
-Clone this repository and run the installer:
+On Ubuntu GNOME, install the system dependencies first. GNOME supplies the
+unlocked desktop keyring; `libsecret-tools` provides `secret-tool`:
+
+```sh
+sudo apt update
+sudo apt install -y git python3 libsecret-tools
+```
+
+Codex CLI must be installed separately and be version 0.158.0 or newer. On
+Ubuntu 22.04, use Python 3.11 or newer if the default `python3` is older.
+
+### One-line install
+
+For a source checkout, run:
 
 ```sh
 git clone https://github.com/zxzxn3/codex-deepseek.git
@@ -41,17 +54,27 @@ cd codex-deepseek
 python3 launcher.py install
 ```
 
+Or, without keeping the clone in the current directory:
+
+```sh
+(tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; git clone --depth 1 https://github.com/zxzxn3/codex-deepseek.git "$tmp/codex-deepseek" && python3 "$tmp/codex-deepseek/launcher.py" install)
+```
+
+If Ubuntu 22.04's `python3` is still 3.10, install and invoke a Python 3.11+
+interpreter by replacing the final `python3` with `python3.11`; upgrading to
+Ubuntu 24.04 also provides Python 3.12.
+
 The default destination is `~/.local/share/codex-deepseek/`. To choose another
 directory and optional components:
 
 ```sh
 python3 launcher.py install --dir ~/apps/codex-deepseek --defaults \
-  --with-messaging-skill --with-bell-hook
+  --with-messaging-skill --with-usage-skill --with-bell-hook
 ```
 
-All four options are optional. `--defaults` skips configuration-source selection;
-it does not skip the final confirmation. The skill and bell hook are not enabled
-unless requested with their flags.
+These options are optional. `--defaults` skips configuration-source selection;
+it does not skip the final confirmation. Skills and the bell hook are not
+enabled unless requested with their flags.
 
 Rehearse the interactive installation without changing files:
 
@@ -151,10 +174,11 @@ choice. They show their plan and require confirmation before writing:
 
 ```sh
 codex-deepseek --install-messaging-skill
+codex-deepseek --install-usage-skill
 codex-deepseek --install-bell-hook
 ```
 
-Add `--dry-run` to either command to preview its plan without changing files.
+Add `--dry-run` to any command to preview its plan without changing files.
 
 The target defaults to the project directory containing the running launcher,
 including custom installations. Use `--dir /path/to/codex-deepseek` to select a
@@ -164,6 +188,9 @@ different installed project. An existing, valid DeepSeek home is required.
   across local Codex sessions. It links the bundled
   [skill](skills/codex-session-messaging/SKILL.md) into the selected home without
   rewriting configuration or starting a service.
+- **DeepSeek usage skill:** teaches agents to run the bundled usage reporter and
+  report estimated cost without depending on a machine-specific command alias.
+  It links the [skill](skills/deepseek-usage/SKILL.md) into the selected home.
 - **Bell hook:** plays sounds when submitting a prompt, finishing a response or
   requesting approval. Requires `paplay`; the sounds are bundled in
   [`assets/bell/`](assets/bell/README.md), and the configuration is defined in
@@ -192,7 +219,8 @@ codex-deepseek agents
 codex-deepseek resume --all
 ```
 
-`install`, `setup-key`, `--install-messaging-skill` and `--install-bell-hook`
+`install`, `setup-key`, `--install-messaging-skill`, `--install-usage-skill` and
+`--install-bell-hook`
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
 passes this home's configured model through `--model`, unless you already supplied
@@ -235,6 +263,12 @@ python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --days 30
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --all
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --json
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --no-chart
+```
+
+To let Codex agents use this workflow directly, install the optional component:
+
+```sh
+codex-deepseek --install-usage-skill
 ```
 
 The first run builds a local incremental index at

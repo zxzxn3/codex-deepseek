@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -235,6 +236,36 @@ class InstallerTest(unittest.TestCase):
             installer.install_extra(self.root, skill=True)
             prompt.assert_not_called()
 
+    def test_usage_skill_links_portable_wrapper(self):
+        with patch('builtins.input', return_value='y'):
+            self.install()
+        config = self.root / '.codex/config.toml'
+        before = config.read_bytes()
+        with patch('builtins.input', return_value='n'):
+            installer.install_extra(self.root, usage_skill=True)
+        destination = self.root / '.codex/skills/deepseek-usage'
+        self.assertFalse(destination.exists())
+        with patch('builtins.input', return_value='y'):
+            installer.install_extra(self.root, usage_skill=True)
+        self.assertEqual(destination.resolve(), self.root / installer.USAGE_SKILL)
+        self.assertTrue((destination / 'scripts/usage.py').is_file())
+        self.assertEqual(config.read_bytes(), before)
+        result = subprocess.run(
+            [sys.executable, str(destination / 'scripts/usage.py'), '--help'],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--days', result.stdout)
+        with patch('builtins.input') as prompt:
+            installer.install_extra(self.root, usage_skill=True)
+            prompt.assert_not_called()
+
+    def test_usage_skill_can_be_selected_during_initial_install(self):
+        with patch('builtins.input', return_value='y'):
+            self.install(usage_skill=True)
+        destination = self.root / '.codex/skills/deepseek-usage'
+        self.assertEqual(destination.resolve(), self.root / installer.USAGE_SKILL)
+        self.assertTrue((destination / 'SKILL.md').is_file())
+
     def test_skill_in_initial_install_and_conflicting_addon(self):
         with patch('builtins.input', return_value='y'):
             self.install(skill=True)
@@ -360,18 +391,20 @@ class InstallerTest(unittest.TestCase):
     def test_cli_has_no_copy_or_overwrite_switch(self):
         with patch.object(installer, 'install', return_value=0) as run:
             installer.run(['install', '--dir', str(self.root), '--defaults',
-                           '--with-messaging-skill', '--with-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True, bell=True,
-                                        dry_run=False)
+                           '--with-messaging-skill', '--with-usage-skill',
+                           '--with-bell-hook'], source=self.source)
+            run.assert_called_once_with(self.source, self.root, defaults=True, skill=True,
+                                        usage_skill=True, bell=True, dry_run=False)
         with patch.object(installer, 'install_extra', return_value=0) as run:
             installer.run(['--dir', str(self.root), '--install-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.root, skill=False, dry_run=False)
+            run.assert_called_once_with(self.root, skill=False, usage_skill=False, dry_run=False)
         for option in ('--config-source', '--force', '--install-hooks'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 installer.run(['install', option], source=self.source)
 
     def test_component_flags_explain_the_correct_entry(self):
-        for option in ('--install-messaging-skill', '--install-bell-hook'):
+        for option in ('--install-messaging-skill', '--install-usage-skill',
+                       '--install-bell-hook'):
             output = io.StringIO()
             with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as error:
                 installer.run(['install', option], source=self.source)
@@ -450,7 +483,8 @@ class InstallerTest(unittest.TestCase):
             installer.run(['install', '--update', '--dir', str(self.root), '--dry-run'],
                           source=self.source)
             run.assert_called_once_with(self.source, self.root, dry_run=True)
-        for option in ('--defaults', '--with-messaging-skill', '--with-bell-hook'):
+        for option in ('--defaults', '--with-messaging-skill', '--with-usage-skill',
+                       '--with-bell-hook'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 installer.run(['install', '--update', option], source=self.source)
 

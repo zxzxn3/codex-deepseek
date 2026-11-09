@@ -8,8 +8,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tomllib
 import warnings
+
+try:
+    import tomllib
+except ModuleNotFoundError as error:
+    raise SystemExit("codex-deepseek requires Python 3.11 or newer") from error
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / ".codex"
@@ -182,7 +186,8 @@ def restore_requested(args: list[str]) -> bool:
 
 
 def main(args: list[str]) -> int:
-    if args and args[0] in ('install', '--install-messaging-skill', '--install-bell-hook', '--dir', '--dry-run'):
+    if args and args[0] in ('install', '--install-messaging-skill', '--install-usage-skill',
+                            '--install-bell-hook', '--dir', '--dry-run'):
         from libs import _install as installer
         return installer.run(args, source=HERE)
     if args == ["setup-key"]:
