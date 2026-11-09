@@ -8,6 +8,9 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 - `test_launcher.py`: credential handling, command/keyring preflight and installation
   routing, including help from a clean checkout without bytecode or home writes.
+- `test_usage.py`: rollout usage parsing, incremental indexing, official
+  peak/off-peak pricing, standalone copied-script behavior, JSON output and
+  terminal chart rendering.
 - `test_install.py`: planning without writes, confirmation/cancellation, custom
   destinations, both confirmation gates, empty-home requirements, configuration copying, component
   installation, conflict handling, bell-hook preservation and TOML value round trips.

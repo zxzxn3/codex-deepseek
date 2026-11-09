@@ -220,6 +220,47 @@ models are defined in `launcher.py` and `models.json`; probes and tests cover
 compatibility. See [probes/README.md](probes/README.md) for commands, including
 opt-in paid probes.
 
+### Usage and estimated cost
+
+`usage_tool/codex_usage.py` is a standalone accessory, not a `codex-deepseek`
+subcommand. It reads only the selected Codex home's
+`sessions/**/rollout-*.jsonl`. The default installation example therefore
+selects this project's private `.codex/`; it does not scan the ordinary
+`~/.codex`. The tool uses the real `usage` object recorded for each response
+and estimates cost from DeepSeek's current public prices:
+
+```sh
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --days 30
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --all
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --json
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --no-chart
+```
+
+The first run builds a local incremental index at
+`.codex/usage/usage.sqlite3`; later runs read only appended rollout data. The
+cache contains token counters and timestamps, not message text. Input cache
+hits, cache misses, output tokens, peak/off-peak periods, and model-specific
+pricing are accounted for separately.
+
+The result is an estimate. DeepSeek's platform remains authoritative for
+billing, and separately billed Search/Fetch usage is not included. Pricing and
+peak-period rules are based on the official
+[DeepSeek pricing page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/).
+
+The reporter is one self-contained standard-library file. Copy it into another
+Codex home and run it there, or pass a home explicitly:
+
+```sh
+cp /path/to/codex-deepseek/usage_tool/codex_usage.py /path/to/other-home/
+python3 /path/to/other-home/codex_usage.py
+python3 /path/to/other-home/codex_usage.py --home /path/to/other-home
+```
+
+When run without `--home`, it first checks whether the script's directory is a
+Codex home; for the bundled `usage_tool/` layout it then checks the sibling `.codex/`.
+It has no dependency on the launcher or the `libs/` package.
+
 ## Optional tools
 
 Session messaging is optional. Its addressing and reply workflow is documented

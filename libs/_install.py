@@ -145,8 +145,11 @@ def dependencies() -> None:
 
 
 def project_files(source: Path) -> dict[Path, tuple[bytes, int]]:
-    paths = [Path(name) for name in ('launcher.py', 'libs/__init__.py', 'libs/_install.py', 'libs/_config.py', 'models.json',
-                                     'README.md', 'MODEL-CATALOG.md')]
+    paths = [Path(name) for name in (
+        'launcher.py', 'libs/__init__.py', 'libs/_install.py',
+        'libs/_config.py', 'usage_tool/codex_usage.py',
+        'models.json', 'README.md', 'MODEL-CATALOG.md',
+    )]
     for directory in (Path('probes'), Path('tests'), SKILL, BELL.parent, BELL_ASSETS, LOGO.parent):
         paths.extend(p.relative_to(source) for p in (source / directory).rglob('*')
                      if p.is_file() and (p.suffix in ('.py', '.toml', '.oga', '.txt')
