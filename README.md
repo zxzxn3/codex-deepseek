@@ -217,9 +217,10 @@ codex-deepseek -m deepseek-v4-pro
 codex-deepseek -c 'model_reasoning_effort="max"'
 codex-deepseek agents
 codex-deepseek resume --all
+codex-deepseek search "DeepSeek V4 release"
 ```
 
-`install`, `setup-key`, `--install-messaging-skill`, `--install-usage-skill` and
+`install`, `setup-key`, `search`, `--install-messaging-skill`, `--install-usage-skill` and
 `--install-bell-hook`
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
@@ -294,6 +295,21 @@ python3 /path/to/other-home/codex_usage.py --home /path/to/other-home
 When run without `--home`, it first checks whether the script's directory is a
 Codex home; for the bundled `usage_tool/` layout it then checks the sibling `.codex/`.
 It has no dependency on the launcher or the `libs/` package.
+
+### Web search
+
+`codex-deepseek search` calls DeepSeek's native Search API with the same
+keyring credential. It is a local command and is not forwarded to Codex:
+
+```sh
+codex-deepseek search "DeepSeek V4 release"
+codex-deepseek search -n 5 "CachyOS proxy"
+codex-deepseek search --json --need-content "some documentation"
+```
+
+`--need-content` includes full page Markdown when the API returns it. Search
+requests are billed by DeepSeek per successful request; see the
+[Search API guide](https://api-docs.deepseek.com/zh-cn/guides/search.md).
 
 ## Optional tools
 

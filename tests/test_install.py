@@ -121,6 +121,8 @@ class InstallerTest(unittest.TestCase):
         link = self.home / '.local/bin/codex-deepseek'
         self.assertEqual(link.resolve(), self.root / 'launcher.py')
         self.assertTrue((self.root / 'libs/_install.py').is_file())
+        self.assertTrue((self.root / 'libs/_proxy.py').is_file())
+        self.assertTrue((self.root / 'search_tool/deepseek_search.py').is_file())
         self.assertTrue((self.root / installer.SKILL / 'SKILL.md').is_file())
         self.assertFalse((self.root / installer.SKILL / 'SKILL.zh.md').exists())
         self.assertFalse((self.root / '.codex/skills').exists())

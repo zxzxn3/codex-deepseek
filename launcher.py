@@ -193,6 +193,9 @@ def main(args: list[str]) -> int:
     if args == ["setup-key"]:
         save_key()
         return 0
+    if args and args[0] == "search":
+        from search_tool.deepseek_search import main as search_main
+        return search_main(args[1:], key_reader=read_key)
     if not (DATA / "config.toml").is_file():
         raise ValueError("Run python3 launcher.py install in the codex-deepseek project first")
     forwarded = args
