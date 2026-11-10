@@ -185,6 +185,31 @@ def restore_requested(args: list[str]) -> bool:
     return False
 
 
+def interactive_tui_requested(args: list[str]) -> bool:
+    """Return whether the command opens an interactive TUI rather than a tool."""
+    if "--no-daemon" in args:
+        return False
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == '--':
+            return False
+        if token in VALUE_OPTIONS:
+            index += 2
+            continue
+        if token.partition('=')[0] in VALUE_OPTIONS and '=' in token:
+            index += 1
+            continue
+        if len(token) > 2 and token[:2] in VALUE_OPTIONS and not token.startswith('--'):
+            index += 1
+            continue
+        if token in COMMAND_FLAGS:
+            index += 1
+            continue
+        return token in {'resume', 'agents', 'fork'}
+    return True
+
+
 def main(args: list[str]) -> int:
     if args and args[0] in ('install', '--install-messaging-skill', '--install-usage-skill',
                             '--install-bell-hook', '--dir', '--dry-run'):
@@ -199,6 +224,7 @@ def main(args: list[str]) -> int:
     if not (DATA / "config.toml").is_file():
         raise ValueError("Run python3 launcher.py install in the codex-deepseek project first")
     forwarded = args
+    interactive_tui = interactive_tui_requested(args)
     if requires_key(args):
         config = tomllib.loads((DATA / 'config.toml').read_text())
         model = config.get('model')
@@ -214,7 +240,8 @@ def main(args: list[str]) -> int:
                 if effort is not None:
                     if not isinstance(effort, str) or not effort.strip():
                         raise ValueError('model_reasoning_effort must be a nonempty string')
-                    if not explicit_config_key(args, 'model_reasoning_effort'):
+                    if not interactive_tui and \
+                            not explicit_config_key(args, 'model_reasoning_effort'):
                         forwarded[:0] = ['-c', f'model_reasoning_effort={json.dumps(effort)}']
         if args[-3:] == ['app-server', 'daemon', 'start']:
             check_key(timeout=15)  # A background service cannot wait indefinitely for desktop input.

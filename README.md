@@ -249,6 +249,13 @@ models are defined in `launcher.py` and `models.json`; probes and tests cover
 compatibility. See [probes/README.md](probes/README.md) for commands, including
 opt-in paid probes.
 
+Interactive TUI launches avoid generic `-c` overrides so Codex can attach to the
+managed daemon for this `CODEX_HOME`. The DeepSeek home supplies its model and
+reasoning effort as user configuration; the ordinary Codex home does not repeat
+the model's default reasoning effort as a project-layer override. Resumed
+threads retain their saved model and effort. Non-interactive commands still
+receive the configured effort override.
+
 ### Usage and estimated cost
 
 `usage_tool/codex_usage.py` is a standalone accessory, not a `codex-deepseek`

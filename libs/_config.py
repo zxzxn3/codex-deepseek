@@ -66,6 +66,7 @@ def configuration(base: str = '', *, root: Path | None = None) -> str:
     if isinstance(hooks, dict):
         hooks.pop('state', None)  # Approval records belong to the source config path.
     data.update(model='deepseek-flash', model_provider='deepseek',
+                model_reasoning_effort='high',
                 model_catalog_json=str((root or HERE) / 'models.json'))
     providers = data.setdefault('model_providers', {})
     if not isinstance(providers, dict):

@@ -115,8 +115,9 @@ class InstallerTest(unittest.TestCase):
             self.install()
         config = tomllib.loads((self.root / '.codex/config.toml').read_text())
         self.assertEqual(config['model_catalog_json'], str(self.root / 'models.json'))
+        self.assertEqual(config['model_reasoning_effort'], 'high')
         for key in ('approval_policy', 'sandbox_mode', 'hooks', 'web_search',
-                    'model_reasoning_effort', 'show_raw_agent_reasoning'):
+                    'show_raw_agent_reasoning'):
             self.assertNotIn(key, config)
         link = self.home / '.local/bin/codex-deepseek'
         self.assertEqual(link.resolve(), self.root / 'launcher.py')

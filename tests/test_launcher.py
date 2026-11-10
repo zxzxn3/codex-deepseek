@@ -127,6 +127,7 @@ class KeyPreflightTest(unittest.TestCase):
                     launcher.main(args)
                 self.assertEqual(
                     execute.call_args.args[1],
+                    ['codex', '--model', 'deepseek-flash'] if not args else
                     ['codex', '-c', 'model_reasoning_effort="high"',
                      '--model', 'deepseek-flash', *args],
                 )
@@ -204,6 +205,44 @@ class KeyPreflightTest(unittest.TestCase):
                      ['exec', 'agents']):
             with self.subTest(args=args):
                 self.assertFalse(launcher.restore_requested(args))
+
+    def test_interactive_tui_omits_generic_config_override(self):
+        for args in ([], ['resume', '--last'], ['-C', '/tmp', 'agents'],
+                     ['fork', '--last']):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
+                data = Path(tmp)
+                (data / 'config.toml').write_text(
+                    'model = "deepseek-flash"\nmodel_reasoning_effort = "high"\n')
+                with patch.object(launcher, 'DATA', data), \
+                     patch.object(launcher, 'check_key'), \
+                     patch.object(launcher.os, 'execvpe') as execute:
+                    launcher.main(args)
+                forwarded = ['codex']
+                if not launcher.restore_requested(args):
+                    forwarded += ['--model', 'deepseek-flash']
+                forwarded += args
+                self.assertEqual(execute.call_args.args[1], forwarded)
+        for args in (['--no-daemon'], ['exec', 'hello'],
+                     ['app-server', 'daemon', 'start'],
+                     ['app-server', 'proxy'], ['review'], ['--help']):
+            with self.subTest(args=args):
+                self.assertFalse(launcher.interactive_tui_requested(args))
+
+    def test_noninteractive_commands_keep_effort_override(self):
+        args = ['exec', 'hello']
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / 'config.toml').write_text(
+                'model = "deepseek-flash"\nmodel_reasoning_effort = "high"\n')
+            with patch.object(launcher, 'DATA', data), \
+                 patch.object(launcher, 'check_key'), \
+                 patch.object(launcher.os, 'execvpe') as execute:
+                launcher.main(args)
+            self.assertEqual(
+                execute.call_args.args[1],
+                ['codex', '-c', 'model_reasoning_effort="high"',
+                 '--model', 'deepseek-flash', *args],
+            )
 
     def test_prompts_and_option_values_do_not_become_commands(self):
         for args in [[], ['exec', 'queue'], ['resume'], ['app-server'], ['doctor'],
