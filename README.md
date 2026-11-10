@@ -259,8 +259,9 @@ receive the configured effort override.
 ### Usage and estimated cost
 
 `usage_tool/codex_usage.py` is a standalone accessory, not a `codex-deepseek`
-subcommand. It reads only the selected Codex home's
-`sessions/**/rollout-*.jsonl`. The default installation example therefore
+subcommand. It reads the selected Codex home's
+`sessions/**/rollout-*.jsonl` and `archived_sessions/**/rollout-*.jsonl`.
+Copied sessions are counted once. The default installation example therefore
 selects this project's private `.codex/`; it does not scan the ordinary
 `~/.codex`. The tool uses the real `usage` object recorded for each response
 and estimates cost from DeepSeek's current public prices:
@@ -268,6 +269,10 @@ and estimates cost from DeepSeek's current public prices:
 ```sh
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --days 30
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --hours 2
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --minutes 90
+python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py \
+  --start 2026-11-08 --end 2026-11-09
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --all
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --json
 python3 ~/.local/share/codex-deepseek/usage_tool/codex_usage.py --no-chart
@@ -284,6 +289,13 @@ The first run builds a local incremental index at
 cache contains token counters and timestamps, not message text. Input cache
 hits, cache misses, output tokens, peak/off-peak periods, and model-specific
 pricing are accounted for separately.
+
+`--days` uses calendar-day boundaries and defaults to 14 days. `--hours` and
+`--minutes` select exact rolling windows ending at the current time; the three
+window options are mutually exclusive. `--start` and `--end` select an explicit
+past or present window in the `Asia/Shanghai` timezone. Both options are
+required together and accept either `YYYY-MM-DD` or an ISO date-time. A
+date-only end includes the whole end day.
 
 The result is an estimate. DeepSeek's platform remains authoritative for
 billing, and separately billed Search/Fetch usage is not included. Pricing and

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from contextlib import redirect_stderr
 import io
 import json
 import os
@@ -58,6 +59,41 @@ def write_rollout(home: Path, lines: list[dict], name: str = "rollout-fixture.js
     path = directory / name
     path.write_text("".join(json.dumps(item) + "\n" for item in lines))
     return path
+
+
+def write_archived_rollout(home: Path, lines: list[dict],
+                           name: str = "rollout-archived.jsonl") -> Path:
+    directory = home / "archived_sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_text("".join(json.dumps(item) + "\n" for item in lines))
+    return path
+
+
+def legacy_usage_record(timestamp: str = "2026-11-09T05:00:00Z") -> list[dict]:
+    usage = {
+        "input_tokens": 1000,
+        "cached_input_tokens": 800,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 100,
+        "reasoning_output_tokens": 50,
+        "total_tokens": 1100,
+    }
+    return [
+        event("session_meta", {"session_id": "legacy-session",
+                               "model_provider": "deepseek"},
+              "2026-11-09T01:59:00Z"),
+        event("turn_context", {"turn_id": "legacy-turn",
+                               "model": "deepseek-flash"},
+              "2026-11-09T01:59:30Z"),
+        event("event_msg", {
+            "type": "token_count",
+            "info": {
+                "last_token_usage": usage,
+                "total_token_usage": usage,
+            },
+        }, timestamp),
+    ]
 
 
 class PricingTest(unittest.TestCase):
@@ -125,6 +161,22 @@ class UsageParsingTest(unittest.TestCase):
             records = self.collect(home)
         self.assertEqual([record.response_id for record in records], ["one", "two"])
 
+    def test_archived_sessions_are_counted(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_archived_rollout(home, usage_record("archived"))
+            records = self.collect(home)
+        self.assertEqual([record.response_id for record in records], ["archived"])
+
+    def test_copied_archived_legacy_session_is_counted_once(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_rollout(home, legacy_usage_record())
+            write_archived_rollout(home, legacy_usage_record())
+            records = self.collect(home)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].input_tokens, 1000)
+
     def test_report_keeps_reasoning_inside_output_not_separately_billed(self):
         with TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -170,6 +222,87 @@ class UsageParsingTest(unittest.TestCase):
         self.assertEqual(data["totals"]["requests"], 1)
         self.assertEqual(data["totals"]["output_tokens"], 100)
         self.assertEqual(data["totals"]["cost_cny"], "0.000616")
+
+    def test_hour_window_is_rolling_from_now(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_rollout(home, usage_record(
+                "inside", timestamp="2026-11-09T05:00:00Z"))
+            write_rollout(home, usage_record(
+                "outside", timestamp="2026-11-09T03:59:59Z"),
+                "rollout-older.jsonl")
+            output = io.StringIO()
+            self.assertEqual(codex_usage.run(
+                ["--hours", "2", "--json"], home=home, out=output, now=NOW), 0)
+            data = json.loads(output.getvalue())
+        self.assertEqual(data["start"], "2026-11-09T04:00:00+00:00")
+        self.assertEqual(data["totals"]["requests"], 1)
+
+    def test_minute_window_is_rolling_from_now(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_rollout(home, usage_record(
+                "inside", timestamp="2026-11-09T05:00:00Z"))
+            write_rollout(home, usage_record(
+                "outside", timestamp="2026-11-09T04:29:59Z"),
+                "rollout-older.jsonl")
+            output = io.StringIO()
+            self.assertEqual(codex_usage.run(
+                ["--minutes", "90", "--json"], home=home, out=output, now=NOW), 0)
+            data = json.loads(output.getvalue())
+        self.assertEqual(data["start"], "2026-11-09T04:30:00+00:00")
+        self.assertEqual(data["totals"]["requests"], 1)
+
+    def test_window_options_are_mutually_exclusive(self):
+        with TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
+            home = Path(tmp)
+            with self.assertRaises(SystemExit) as raised:
+                codex_usage.run(
+                    ["--hours", "2", "--minutes", "120"], home=home, now=NOW)
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_explicit_date_window_includes_the_end_day(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_rollout(home, usage_record(
+                "inside", timestamp="2026-11-08T15:59:59Z"))
+            write_rollout(home, usage_record(
+                "outside", timestamp="2026-11-08T16:00:00Z"),
+                "rollout-older.jsonl")
+            output = io.StringIO()
+            self.assertEqual(codex_usage.run([
+                "--start", "2026-11-08", "--end", "2026-11-08", "--json",
+            ], home=home, out=output, now=NOW), 0)
+            data = json.loads(output.getvalue())
+        self.assertEqual(data["start"], "2026-11-07T16:00:00+00:00")
+        self.assertEqual(data["end"], "2026-11-08T16:00:00+00:00")
+        self.assertEqual(data["totals"]["requests"], 1)
+        self.assertEqual([day["date"] for day in data["days"]], ["2026-11-08"])
+
+    def test_explicit_datetime_window_uses_exact_boundaries(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            write_rollout(home, usage_record(
+                "inside", timestamp="2026-11-08T12:30:00Z"))
+            write_rollout(home, usage_record(
+                "outside", timestamp="2026-11-08T13:00:00Z"),
+                "rollout-older.jsonl")
+            output = io.StringIO()
+            self.assertEqual(codex_usage.run([
+                "--start", "2026-11-08T20:00:00",
+                "--end", "2026-11-08T21:00:00", "--json",
+            ], home=home, out=output, now=NOW), 0)
+            data = json.loads(output.getvalue())
+        self.assertEqual(data["start"], "2026-11-08T12:00:00+00:00")
+        self.assertEqual(data["end"], "2026-11-08T13:00:00+00:00")
+        self.assertEqual(data["totals"]["requests"], 1)
+
+    def test_start_and_end_must_be_used_together(self):
+        with TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
+            home = Path(tmp)
+            with self.assertRaises(SystemExit) as raised:
+                codex_usage.run(["--start", "2026-11-08"], home=home, now=NOW)
+        self.assertEqual(raised.exception.code, 2)
 
     def test_standalone_copy_and_explicit_other_home(self):
         with TemporaryDirectory() as tmp:

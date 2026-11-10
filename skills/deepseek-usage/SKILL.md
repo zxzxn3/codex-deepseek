@@ -7,6 +7,7 @@ description: Report estimated DeepSeek API usage and cost from a local codex-dee
 
 Use the bundled wrapper. It resolves `usage_tool/codex_usage.py` from the
 installation that contains this skill, so custom install directories work.
+The reporter indexes both active and archived rollouts.
 
 Do not depend on a personal command alias, and do not use
 `codex-deepseek usage`; that is not the reporter.
@@ -16,14 +17,21 @@ Do not depend on a personal command alias, and do not use
 ```sh
 python3 scripts/usage.py
 python3 scripts/usage.py --days 7 --no-chart
+python3 scripts/usage.py --hours 2 --json
+python3 scripts/usage.py --minutes 90 --no-chart
+python3 scripts/usage.py --start 2026-11-08 --end 2026-11-09
 python3 scripts/usage.py --all
 python3 scripts/usage.py --json
 python3 scripts/usage.py --home /path/to/codex-home
 ```
 
-The default window is 14 calendar days. `--days N` changes the window,
-`--all` covers all indexed history, and `--json` is for machine-readable
-output. `--home` selects another Codex home.
+The default window is 14 calendar days. `--days N` uses calendar-day
+boundaries. `--hours N` and `--minutes N` select exact rolling windows ending
+now. `--start` and `--end` select an explicit `Asia/Shanghai` window and must
+be used together. Date-only values use calendar boundaries, and a date-only end
+includes the full end day. These window options are mutually exclusive with
+each other and `--all`, which covers all indexed history. `--json` is for
+machine-readable output. `--home` selects another Codex home.
 
 ## Reporting
 

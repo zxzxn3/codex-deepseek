@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable, TextIO
@@ -331,23 +331,25 @@ class UsageStore:
         return connection
 
     def _sources(self, start: datetime | None) -> Iterable[Path]:
-        sessions = self.home / "sessions"
-        if not sessions.is_dir() or sessions.is_symlink():
-            return ()
         files = []
-        for path in sessions.rglob("rollout-*.jsonl"):
-            if path.is_symlink() or not path.is_file():
+        for sessions in (self.home / "sessions",
+                         self.home / "archived_sessions"):
+            if not sessions.is_dir() or sessions.is_symlink():
                 continue
-            if start is not None:
-                try:
-                    stamp = path.stat().st_mtime
-                except OSError:
+            for path in sessions.rglob("rollout-*.jsonl"):
+                if path.is_symlink() or not path.is_file():
                     continue
-                # Include old path dates too, in case a saved session was
-                # resumed during the requested window.
-                if stamp < start.timestamp() and not _path_date_in_window(path, start):
-                    continue
-            files.append(path)
+                if start is not None:
+                    try:
+                        stamp = path.stat().st_mtime
+                    except OSError:
+                        continue
+                    # Include old path dates too, in case a saved session was
+                    # resumed during the requested window.
+                    if (stamp < start.timestamp()
+                            and not _path_date_in_window(path, start)):
+                        continue
+                files.append(path)
         return files
 
     def _scan(self, connection: sqlite3.Connection, path: Path) -> None:
@@ -475,7 +477,10 @@ class UsageStore:
                                    separators=(",", ":")).encode()
                     ).hexdigest()[:20]
                     pending_legacy.append({
-                        "key": f"legacy:{source}:{digest}",
+                        "key": (
+                            f"legacy:{session_id or source}:"
+                            f"{int(moment.timestamp() * 1000)}:{digest}"
+                        ),
                         "session_id": session_id,
                         "turn_id": "",
                         "timestamp": moment,
@@ -532,10 +537,27 @@ class UsageStore:
             rows = connection.execute(
                 """SELECT * FROM records
                    WHERE timestamp_ms >= ? AND timestamp_ms < ?
-                   ORDER BY timestamp_ms, key""",
+                   ORDER BY timestamp_ms, legacy, key""",
                 (int(start.timestamp() * 1000), int(end.timestamp() * 1000)),
             ).fetchall()
-        return [_row_record(row) for row in rows]
+        records = []
+        legacy_seen = set()
+        for row in rows:
+            if row["legacy"]:
+                # Older cache versions keyed legacy records by source path.
+                # Deduplicate semantic copies when sessions and archives
+                # contain the same rollout.
+                signature = (
+                    row["session_id"], row["timestamp_ms"], row["model"],
+                    row["input_tokens"], row["cached_input_tokens"],
+                    row["cache_write_input_tokens"], row["output_tokens"],
+                    row["reasoning_output_tokens"], row["total_tokens"],
+                )
+                if signature in legacy_seen:
+                    continue
+                legacy_seen.add(signature)
+            records.append(_row_record(row))
+        return records
 
 
 def _is_deepseek(model: str, provider: str | None) -> bool:
@@ -599,7 +621,11 @@ def build_report(records: list[UsageRecord], start: datetime, end: datetime,
 
     # Keep empty days in the chart so gaps do not move the timeline.
     start_day = start.astimezone(TIMEZONE).date()
-    end_day = end.astimezone(TIMEZONE).date()
+    day_end = end
+    local_end = end.astimezone(TIMEZONE)
+    if end > start and local_end.time() == time.min:
+        day_end -= timedelta(microseconds=1)
+    end_day = day_end.astimezone(TIMEZONE).date()
     day_list = []
     while start_day <= end_day:
         day_list.append(days.get(start_day, DayUsage(start_day)))
@@ -764,14 +790,54 @@ def _json_report(report: UsageReport, home: Path) -> dict:
     }
 
 
-def _positive_days(value: str) -> int:
+def _positive_integer(value: str, label: str) -> int:
     try:
-        days = int(value)
+        number = int(value)
     except ValueError as error:
-        raise argparse.ArgumentTypeError("days must be an integer") from error
-    if days < 1:
-        raise argparse.ArgumentTypeError("days must be at least 1")
-    return days
+        raise argparse.ArgumentTypeError(f"{label} must be an integer") from error
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{label} must be at least 1")
+    return number
+
+
+def _positive_days(value: str) -> int:
+    return _positive_integer(value, "days")
+
+
+def _positive_hours(value: str) -> int:
+    return _positive_integer(value, "hours")
+
+
+def _positive_minutes(value: str) -> int:
+    return _positive_integer(value, "minutes")
+
+
+def _window_boundary(value: str, *, is_end: bool) -> datetime:
+    text = value.strip()
+    try:
+        day = date.fromisoformat(text)
+    except ValueError:
+        try:
+            moment = datetime.fromisoformat(text[:-1] + "+00:00"
+                                            if text.endswith("Z") else text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                "window time must be YYYY-MM-DD or an ISO date-time") from error
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=TIMEZONE)
+        return moment.astimezone(timezone.utc)
+    moment = datetime.combine(day, time.min, tzinfo=TIMEZONE)
+    if is_end:
+        moment += timedelta(days=1)
+    return moment.astimezone(timezone.utc)
+
+
+def _window_start(value: str) -> datetime:
+    return _window_boundary(value, is_end=False)
+
+
+def _window_end(value: str) -> datetime:
+    return _window_boundary(value, is_end=True)
 
 
 def _looks_like_home(path: Path) -> bool:
@@ -795,8 +861,18 @@ def run(args: list[str], *, home: Path | None = None, out: TextIO | None = None,
         description="Show token usage and estimated DeepSeek cost from this "
                     "selected Codex home.",
     )
-    parser.add_argument("--days", type=_positive_days, default=14,
-                        help="report window in calendar days; default 14")
+    parser.add_argument("--days", type=_positive_days,
+                        help="report calendar-day window; default 14")
+    parser.add_argument("--hours", type=_positive_hours,
+                        help="report a rolling window ending now, in hours")
+    parser.add_argument("--minutes", type=_positive_minutes,
+                        help="report a rolling window ending now, in minutes")
+    parser.add_argument(
+        "--start", type=_window_start,
+        help="window start in Asia/Shanghai; accepts date or ISO date-time")
+    parser.add_argument(
+        "--end", type=_window_end,
+        help="window end in Asia/Shanghai; a date-only value includes that day")
     parser.add_argument("--all", action="store_true",
                         help="summarize all indexed rollout history")
     parser.add_argument("--home", type=Path,
@@ -807,25 +883,51 @@ def run(args: list[str], *, home: Path | None = None, out: TextIO | None = None,
     parser.add_argument("--no-chart", action="store_true",
                         help="omit the daily terminal chart")
     options = parser.parse_args(args)
-    if options.all and options.days != 14:
-        parser.error("--all and --days are mutually exclusive")
+    windows = [name for name, value in (
+        ("--days", options.days),
+        ("--hours", options.hours),
+        ("--minutes", options.minutes),
+    ) if value is not None]
+    if len(windows) > 1:
+        parser.error(f"{', '.join(windows)} are mutually exclusive")
+    if options.all and windows:
+        parser.error(f"--all and {windows[0]} are mutually exclusive")
+    if (options.start is None) != (options.end is None):
+        parser.error("--start and --end must be used together")
+    explicit_window = options.start is not None
+    if explicit_window and (options.all or windows):
+        parser.error("--start/--end cannot be combined with another window option")
+    if explicit_window and options.end <= options.start:
+        parser.error("--end must be after --start")
     output = out or sys.stdout
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    report_now = current
     target_home = options.home or home
     if target_home is None:
         target_home = _default_home()
     target_home = Path(target_home)
     if options.all:
         start = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        end = current
+    elif explicit_window:
+        start, end = options.start, options.end
+    elif options.hours is not None:
+        start = end = current
+        start -= timedelta(hours=options.hours)
+    elif options.minutes is not None:
+        start = end = current
+        start -= timedelta(minutes=options.minutes)
     else:
-        start = _local_midnight(current) - timedelta(days=options.days - 1)
+        days = options.days or 14
+        start = _local_midnight(current) - timedelta(days=days - 1)
         start = start.astimezone(timezone.utc)
-    records = collect_records(target_home, start, current)
+        end = current
+    records = collect_records(target_home, start, end)
     if options.all and records:
         start = min(record.timestamp for record in records)
     elif options.all:
-        start = current
-    report = build_report(records, start, current, current)
+        start = end
+    report = build_report(records, start, end, report_now)
     if options.json:
         json.dump(_json_report(report, target_home), output, indent=2,
                   ensure_ascii=False)
