@@ -1,9 +1,10 @@
-"""Offline tests for the bundled DeepSeek search helper."""
+"""Offline tests for the standalone DeepSeek search helper."""
 from __future__ import annotations
 
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import unittest
 import urllib.error
@@ -12,7 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from search_tool import deepseek_search
+import deepseek_search
 
 
 class FakeResponse:
@@ -42,6 +43,19 @@ class FakeOpener:
 
 
 class SearchTest(unittest.TestCase):
+    def test_default_key_reader_uses_shared_keyring_entry(self):
+        result = subprocess.CompletedProcess([], 0, "test-key\n", "")
+        with patch.dict(deepseek_search.os.environ, {"DEEPSEEK_API_KEY": ""}), \
+             patch.object(deepseek_search.shutil, "which",
+                          return_value="/usr/bin/secret-tool"), \
+             patch.object(deepseek_search.subprocess, "run",
+                          return_value=result) as run:
+            self.assertEqual(deepseek_search.default_key_reader(), "test-key")
+        self.assertEqual(run.call_args.args[0], [
+            "/usr/bin/secret-tool", "lookup",
+            "application", "codex-deepseek", "provider", "deepseek",
+        ])
+
     def test_json_payload_and_output(self):
         opener = FakeOpener({
             "results": [{

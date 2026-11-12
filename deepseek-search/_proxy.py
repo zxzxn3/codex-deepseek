@@ -1,4 +1,4 @@
-"""Shared proxy discovery for the bundled search helper."""
+"""Proxy discovery for the standalone DeepSeek search helper."""
 from __future__ import annotations
 
 import os

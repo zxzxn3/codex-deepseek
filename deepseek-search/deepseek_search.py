@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Search the web through DeepSeek's native Search API."""
 from __future__ import annotations
 
@@ -10,16 +11,11 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from libs._config import KEY_ATTRIBUTES
-from libs._proxy import system_proxy
+from _proxy import system_proxy
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
+KEY_ATTRIBUTES = ["application", "codex-deepseek", "provider", "deepseek"]
 MAX_TIMEOUT = 120
 
 
@@ -106,7 +102,7 @@ def search(args: argparse.Namespace, key_reader: Callable[[], str]) -> dict:
         headers={
             "Authorization": f"Bearer {key_reader()}",
             "Content-Type": "application/json",
-            "User-Agent": "codex-deepseek-search/1.0",
+            "User-Agent": "deepseek-search/1.0",
         },
     )
     proxy = system_proxy()
@@ -164,7 +160,7 @@ def main(
     key_reader: Callable[[], str] | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
-        prog="codex-deepseek search",
+        prog="deepseek-search",
         description=__doc__,
     )
     parser.add_argument("query", nargs="+", help="search query (1-128 characters)")
@@ -189,7 +185,7 @@ def main(
     try:
         result = search(args, reader)
     except (RuntimeError, TypeError) as error:
-        print(f"codex-deepseek search: {error}", file=sys.stderr)
+        print(f"deepseek-search: {error}", file=sys.stderr)
         return 1
 
     if args.json:

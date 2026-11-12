@@ -22,7 +22,9 @@ Codex CLI 0.162.1.
 ```text
 ~/.local/share/codex-deepseek/          launcher, installer, models, probes and documentation
 ~/.local/share/codex-deepseek/.codex/ private CODEX_HOME (default)
+~/.local/share/codex-deepseek/deepseek-search/ independent search project
 ~/.local/bin/codex-deepseek          symlink to launcher.py
+~/.local/bin/deepseek-search         symlink to deepseek-search/deepseek_search.py
 ```
 
 `launcher.py` is the command entry point; `libs/_install.py` and `libs/_config.py` are internal modules.
@@ -217,10 +219,9 @@ codex-deepseek -m deepseek-v4-pro
 codex-deepseek -c 'model_reasoning_effort="max"'
 codex-deepseek agents
 codex-deepseek resume --all
-codex-deepseek search "DeepSeek V4 release"
 ```
 
-`install`, `setup-key`, `search`, `--install-messaging-skill`, `--install-usage-skill` and
+`install`, `setup-key`, `--install-messaging-skill`, `--install-usage-skill` and
 `--install-bell-hook`
 are launcher commands; other arguments pass to Codex. The child process uses the project's `.codex/`. Launch separate
 sessions for ChatGPT and DeepSeek. For model-capable commands the launcher
@@ -317,13 +318,14 @@ It has no dependency on the launcher or the `libs/` package.
 
 ### Web search
 
-`codex-deepseek search` calls DeepSeek's native Search API with the same
-keyring credential. It is a local command and is not forwarded to Codex:
+The co-located [`deepseek-search/`](deepseek-search/README.md) project is an
+independent command. It reads the same keyring credential managed by
+`codex-deepseek setup-key`, but does not load the launcher or its modules:
 
 ```sh
-codex-deepseek search "DeepSeek V4 release"
-codex-deepseek search -n 5 "CachyOS proxy"
-codex-deepseek search --json --need-content "some documentation"
+deepseek-search "DeepSeek V4 release"
+deepseek-search -n 5 "CachyOS proxy"
+deepseek-search --json --need-content "some documentation"
 ```
 
 `--need-content` includes full page Markdown when the API returns it. Search

@@ -152,8 +152,7 @@ def dependencies() -> None:
 def project_files(source: Path) -> dict[Path, tuple[bytes, int]]:
     paths = [Path(name) for name in (
         'launcher.py', 'libs/__init__.py', 'libs/_install.py',
-        'libs/_config.py', 'libs/_proxy.py', 'usage_tool/codex_usage.py',
-        'search_tool/__init__.py', 'search_tool/deepseek_search.py',
+        'libs/_config.py', 'usage_tool/codex_usage.py',
         'models.json', 'README.md', 'MODEL-CATALOG.md',
     )]
     for directory in (Path('probes'), Path('tests'), SKILL, USAGE_SKILL,

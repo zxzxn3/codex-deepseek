@@ -75,17 +75,6 @@ class InstallerEntryTest(unittest.TestCase):
             self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*')), before)
 
 
-class SearchRouteTest(unittest.TestCase):
-    def test_search_routes_to_bundled_tool_before_config_or_key_preflight(self):
-        with patch("search_tool.deepseek_search.main", return_value=0) as search_main, \
-             patch.object(launcher, "check_key") as check, \
-             patch.object(launcher.os, "execvpe") as execute:
-            self.assertEqual(launcher.main(["search", "DeepSeek"]), 0)
-        search_main.assert_called_once_with(["DeepSeek"], key_reader=launcher.read_key)
-        check.assert_not_called()
-        execute.assert_not_called()
-
-
 class KeyPreflightTest(unittest.TestCase):
     def test_local_commands_do_not_touch_keyring(self):
         for args in [['queue', '--message', 'hello'], ['agents'], ['help', 'exec'],
