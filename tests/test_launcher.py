@@ -49,7 +49,7 @@ class InstallerEntryTest(unittest.TestCase):
         for args in (['install', '--defaults', '--dry-run'],
                      ['install', '--update', '--dir', '/tmp/example'],
                      ['--install-messaging-skill'], ['--install-usage-skill'],
-                     ['--install-bell-hook', '--dry-run']):
+                     ['--install-search-skill'], ['--install-bell-hook', '--dry-run']):
             with self.subTest(args=args), patch.object(_install, 'run', return_value=0) as run, \
                  patch.object(launcher, 'check_key') as key, \
                  patch.object(launcher.os, 'execvpe') as execute:

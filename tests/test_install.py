@@ -267,6 +267,28 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(destination.resolve(), self.root / installer.USAGE_SKILL)
         self.assertTrue((destination / 'SKILL.md').is_file())
 
+    def test_search_skill_is_optional_and_links_without_moving_implementation(self):
+        with patch('builtins.input', return_value='y'):
+            self.install()
+        destination = self.root / '.codex/skills/deepseek-search'
+        with patch('builtins.input', return_value='n'):
+            installer.install_extra(self.root, search_skill=True)
+        self.assertFalse(destination.exists())
+        with patch('builtins.input', return_value='y'):
+            installer.install_extra(self.root, search_skill=True)
+        self.assertEqual(destination.resolve(), self.root / installer.SEARCH_SKILL)
+        self.assertTrue((destination / 'SKILL.md').is_file())
+        with patch('builtins.input') as prompt:
+            installer.install_extra(self.root, search_skill=True)
+            prompt.assert_not_called()
+
+    def test_search_skill_can_be_selected_during_initial_install(self):
+        with patch('builtins.input', return_value='y'):
+            self.install(search_skill=True)
+        destination = self.root / '.codex/skills/deepseek-search'
+        self.assertEqual(destination.resolve(), self.root / installer.SEARCH_SKILL)
+        self.assertTrue((destination / 'SKILL.md').is_file())
+
     def test_skill_in_initial_install_and_conflicting_addon(self):
         with patch('builtins.input', return_value='y'):
             self.install(skill=True)
@@ -393,19 +415,21 @@ class InstallerTest(unittest.TestCase):
         with patch.object(installer, 'install', return_value=0) as run:
             installer.run(['install', '--dir', str(self.root), '--defaults',
                            '--with-messaging-skill', '--with-usage-skill',
-                           '--with-bell-hook'], source=self.source)
+                           '--with-search-skill', '--with-bell-hook'], source=self.source)
             run.assert_called_once_with(self.source, self.root, defaults=True, skill=True,
-                                        usage_skill=True, bell=True, dry_run=False)
+                                        usage_skill=True, search_skill=True, bell=True,
+                                        dry_run=False)
         with patch.object(installer, 'install_extra', return_value=0) as run:
             installer.run(['--dir', str(self.root), '--install-bell-hook'], source=self.source)
-            run.assert_called_once_with(self.root, skill=False, usage_skill=False, dry_run=False)
+            run.assert_called_once_with(self.root, skill=False, usage_skill=False,
+                                        search_skill=False, dry_run=False)
         for option in ('--config-source', '--force', '--install-hooks'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 installer.run(['install', option], source=self.source)
 
     def test_component_flags_explain_the_correct_entry(self):
         for option in ('--install-messaging-skill', '--install-usage-skill',
-                       '--install-bell-hook'):
+                       '--install-search-skill', '--install-bell-hook'):
             output = io.StringIO()
             with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as error:
                 installer.run(['install', option], source=self.source)
@@ -485,7 +509,7 @@ class InstallerTest(unittest.TestCase):
                           source=self.source)
             run.assert_called_once_with(self.source, self.root, dry_run=True)
         for option in ('--defaults', '--with-messaging-skill', '--with-usage-skill',
-                       '--with-bell-hook'):
+                       '--with-search-skill', '--with-bell-hook'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 installer.run(['install', '--update', option], source=self.source)
 

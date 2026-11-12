@@ -21,6 +21,7 @@ from ._config import MODELS, configuration, toml_config
 
 SKILL = Path('skills/codex-session-messaging')
 USAGE_SKILL = Path('skills/deepseek-usage')
+SEARCH_SKILL = Path('skills/deepseek-search')
 BELL = Path('hooks/bell/hooks.toml')
 BELL_ASSETS = Path('assets/bell')
 LOGO = Path('assets/logo/whale-girl.txt')
@@ -155,12 +156,13 @@ def project_files(source: Path) -> dict[Path, tuple[bytes, int]]:
         'libs/_config.py', 'usage_tool/codex_usage.py',
         'models.json', 'README.md', 'MODEL-CATALOG.md',
     )]
-    for directory in (Path('probes'), Path('tests'), SKILL, USAGE_SKILL,
+    for directory in (Path('probes'), Path('tests'), SKILL, USAGE_SKILL, SEARCH_SKILL,
                       BELL.parent, BELL_ASSETS, LOGO.parent):
         paths.extend(p.relative_to(source) for p in (source / directory).rglob('*')
                      if p.is_file() and (p.suffix in ('.py', '.toml', '.oga', '.txt')
                                         or p.name in ('README.md', 'SKILL.md')))
-    for required in (SKILL / 'SKILL.md', USAGE_SKILL / 'SKILL.md', BELL, LOGO):
+    for required in (SKILL / 'SKILL.md', USAGE_SKILL / 'SKILL.md',
+                     SEARCH_SKILL / 'SKILL.md', BELL, LOGO):
         if required not in paths:
             raise ValueError(f'Bundled component is missing: {required}')
     files = {}
@@ -279,7 +281,8 @@ def component_text(text: str, *, width: int) -> str:
     return styled(textwrap.fill(text, width=width), '94')
 
 
-def next_steps(root: Path, skill: bool, usage_skill: bool, bell: bool, *,
+def next_steps(root: Path, skill: bool, usage_skill: bool, search_skill: bool,
+               bell: bool, *,
                automatic_steps: int) -> None:
     command = 'codex-deepseek'
     print()
@@ -300,6 +303,10 @@ def next_steps(root: Path, skill: bool, usage_skill: bool, bell: bool, *,
         missing.append(
             'Teach agents to report recent DeepSeek usage and estimated cost from this '
             f'installation. Install with: {command} --install-usage-skill')
+    if not search_skill:
+        missing.append(
+            'Teach agents to run DeepSeek-backed web searches with the independent '
+            f'deepseek-search command. Install with: {command} --install-search-skill')
     if not bell:
         missing.append(
             'Looking away from the terminal? Let the bell hook sound when a response '
@@ -324,7 +331,7 @@ def planning_check(check, *args, dry_run=False) -> bool:
 
 
 def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skill=False,
-            bell=False, dry_run=False) -> int:
+            search_skill=False, bell=False, dry_run=False) -> int:
     root = root.expanduser().resolve()
     source = source.resolve()
     files = project_files(source)
@@ -356,6 +363,8 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skil
         operations.append('Enable session messaging')
     if usage_skill:
         operations.append('Enable DeepSeek usage')
+    if search_skill:
+        operations.append('Enable DeepSeek search')
     if bell:
         operations.append('Add bell hooks')
     phase('Preparing installation...')
@@ -369,7 +378,8 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skil
         return 0
     if dry_run:
         simulate_operations(operations, manual_steps=2)
-        next_steps(root, skill, usage_skill, bell, automatic_steps=len(operations))
+        next_steps(root, skill, usage_skill, search_skill, bell,
+                   automatic_steps=len(operations))
         return 0
     # Repeat destination checks after the user has had time to read the plan.
     check_payload(source, root, files)
@@ -403,10 +413,16 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skil
             step = 'install session messaging skill'
             link_to(root / SKILL, home / 'skills/codex-session-messaging')
             operation_row(operations, 5, 'done', manual_steps=2)
+        component_number = 5 + int(skill)
         if usage_skill:
             step = 'install DeepSeek usage skill'
             link_to(root / USAGE_SKILL, home / 'skills/deepseek-usage')
-            operation_row(operations, 6 if skill else 5, 'done', manual_steps=2)
+            operation_row(operations, component_number, 'done', manual_steps=2)
+            component_number += 1
+        if search_skill:
+            step = 'install DeepSeek search skill'
+            link_to(root / SEARCH_SKILL, home / 'skills/deepseek-search')
+            operation_row(operations, component_number, 'done', manual_steps=2)
         if bell:
             operation_row(operations, len(operations), 'done', manual_steps=2)
         phase('Verifying installation...')
@@ -426,6 +442,8 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skil
             verify_link(root / SKILL, home / 'skills/codex-session-messaging')
         if usage_skill:
             verify_link(root / USAGE_SKILL, home / 'skills/deepseek-usage')
+        if search_skill:
+            verify_link(root / SEARCH_SKILL, home / 'skills/deepseek-search')
     except KeyboardInterrupt:
         print(f'Interrupted at {step}; earlier steps may have completed.', file=sys.stderr)
         raise
@@ -433,7 +451,8 @@ def install(source: Path, root: Path, *, defaults=False, skill=False, usage_skil
         raise ValueError(f'Installation failed at {step}: {error}; earlier steps may have completed') from error
     detail('Files, configuration, permissions and links verified.')
     print(styled('==> Automatic steps complete.', '1;32'))
-    next_steps(root, skill, usage_skill, bell, automatic_steps=len(operations))
+    next_steps(root, skill, usage_skill, search_skill, bell,
+               automatic_steps=len(operations))
     return 0
 
 
@@ -553,12 +572,13 @@ def update(source: Path, root: Path, *, dry_run=False) -> int:
     return 0
 
 
-def install_extra(root: Path, *, skill=False, usage_skill=False, dry_run=False) -> int:
+def install_extra(root: Path, *, skill=False, usage_skill=False, search_skill=False,
+                  dry_run=False) -> int:
     root, original = installed_home(root)
     home = root / '.codex'
+    if sum((skill, usage_skill, search_skill)) > 1:
+        raise ValueError('Choose one skill component at a time')
     if skill:
-        if usage_skill:
-            raise ValueError('Choose one skill component at a time')
         source, destination = root / SKILL, home / 'skills/codex-session-messaging'
         component = 'Session messaging skill'
         operations = ['Link session messaging skill']
@@ -566,6 +586,10 @@ def install_extra(root: Path, *, skill=False, usage_skill=False, dry_run=False) 
         source, destination = root / USAGE_SKILL, home / 'skills/deepseek-usage'
         component = 'DeepSeek usage skill'
         operations = ['Link DeepSeek usage skill']
+    elif search_skill:
+        source, destination = root / SEARCH_SKILL, home / 'skills/deepseek-search'
+        component = 'DeepSeek search skill'
+        operations = ['Link DeepSeek search skill']
     else:
         source = destination = component = None
         operations = ['Back up configuration', 'Append bell hooks']
@@ -648,7 +672,7 @@ def run(args: list[str], *, source: Path) -> int:
                         help='rehearse the interactive installation without file changes')
     if args[0] == 'install':
         for option in ('--install-messaging-skill', '--install-usage-skill',
-                       '--install-bell-hook'):
+                       '--install-search-skill', '--install-bell-hook'):
             if any(arg.partition('=')[0] == option for arg in args[1:]):
                 parser.error(f'For an existing installation, use codex-deepseek {option} '
                              '(add --dir PATH for a custom destination)')
@@ -657,23 +681,30 @@ def run(args: list[str], *, source: Path) -> int:
         parser.add_argument('--defaults', action='store_true', help='skip configuration-source selection')
         parser.add_argument('--with-messaging-skill', action='store_true')
         parser.add_argument('--with-usage-skill', action='store_true')
+        parser.add_argument('--with-search-skill', action='store_true')
         parser.add_argument('--with-bell-hook', action='store_true')
         options = parser.parse_args(args[1:])
         if options.update:
             if (options.defaults or options.with_messaging_skill
-                    or options.with_usage_skill or options.with_bell_hook):
+                    or options.with_usage_skill or options.with_search_skill
+                    or options.with_bell_hook):
                 parser.error('--update cannot be combined with fresh-install options')
             return update(source, options.dir, dry_run=options.dry_run)
         return install(source, options.dir, defaults=options.defaults,
                        skill=options.with_messaging_skill,
-                       usage_skill=options.with_usage_skill, bell=options.with_bell_hook,
+                       usage_skill=options.with_usage_skill,
+                       search_skill=options.with_search_skill,
+                       bell=options.with_bell_hook,
                        dry_run=options.dry_run)
     parser.add_argument('--dir', type=Path, default=source)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--install-messaging-skill', action='store_true')
     group.add_argument('--install-usage-skill', action='store_true')
+    group.add_argument('--install-search-skill', action='store_true')
     group.add_argument('--install-bell-hook', action='store_true')
     options = parser.parse_args(args)
     return install_extra(options.dir, skill=options.install_messaging_skill,
-                         usage_skill=options.install_usage_skill, dry_run=options.dry_run)
+                         usage_skill=options.install_usage_skill,
+                         search_skill=options.install_search_skill,
+                         dry_run=options.dry_run)
 

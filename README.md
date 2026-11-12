@@ -71,7 +71,8 @@ directory and optional components:
 
 ```sh
 python3 launcher.py install --dir ~/apps/codex-deepseek --defaults \
-  --with-messaging-skill --with-usage-skill --with-bell-hook
+  --with-messaging-skill --with-usage-skill --with-search-skill \
+  --with-bell-hook
 ```
 
 These options are optional. `--defaults` skips configuration-source selection;
@@ -177,6 +178,7 @@ choice. They show their plan and require confirmation before writing:
 ```sh
 codex-deepseek --install-messaging-skill
 codex-deepseek --install-usage-skill
+codex-deepseek --install-search-skill
 codex-deepseek --install-bell-hook
 ```
 
@@ -193,6 +195,10 @@ different installed project. An existing, valid DeepSeek home is required.
 - **DeepSeek usage skill:** teaches agents to run the bundled usage reporter and
   report estimated cost without depending on a machine-specific command alias.
   It links the [skill](skills/deepseek-usage/SKILL.md) into the selected home.
+- **DeepSeek search skill:** teaches agents when and how to call the independent
+  `deepseek-search` command. It links the
+  [skill](skills/deepseek-search/SKILL.md) into the selected home without moving
+  the search implementation.
 - **Bell hook:** plays sounds when submitting a prompt, finishing a response or
   requesting approval. Requires `paplay`; the sounds are bundled in
   [`assets/bell/`](assets/bell/README.md), and the configuration is defined in
@@ -326,6 +332,12 @@ independent command. It reads the same keyring credential managed by
 deepseek-search "DeepSeek V4 release"
 deepseek-search -n 5 "CachyOS proxy"
 deepseek-search --json --need-content "some documentation"
+```
+
+Install the optional companion skill with:
+
+```sh
+codex-deepseek --install-search-skill
 ```
 
 `--need-content` includes full page Markdown when the API returns it. Search

@@ -212,7 +212,8 @@ def interactive_tui_requested(args: list[str]) -> bool:
 
 def main(args: list[str]) -> int:
     if args and args[0] in ('install', '--install-messaging-skill', '--install-usage-skill',
-                            '--install-bell-hook', '--dir', '--dry-run'):
+                            '--install-search-skill', '--install-bell-hook',
+                            '--dir', '--dry-run'):
         from libs import _install as installer
         return installer.run(args, source=HERE)
     if args == ["setup-key"]:
